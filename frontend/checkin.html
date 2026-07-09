@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Guest Check-in</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="guest">
+  <div class="g-wrap">
+    <div class="g-header">
+      <div class="g-logo" id="logo">GIQ</div>
+      <h1 id="hotelName">Welcome</h1>
+      <p id="welcomeMsg">Please check in below</p>
+    </div>
+
+    <div class="g-card" id="formCard">
+      <label>Full name *</label>
+      <input id="full_name" placeholder="Your name" autocomplete="name">
+      <label>Email</label>
+      <input id="email" type="email" placeholder="you@email.com" autocomplete="email">
+      <label>Phone</label>
+      <input id="phone" type="tel" placeholder="+27 ..." autocomplete="tel">
+      <label>ID / Passport number</label>
+      <input id="id_number" placeholder="ID or passport">
+      <label>Home address</label>
+      <textarea id="address" placeholder="Street, city, country"></textarea>
+      <label>Vehicle registration (optional)</label>
+      <input id="vehicle_reg" placeholder="e.g. ABC 123 GP">
+      <label>Number of guests</label>
+      <input id="num_guests" type="number" min="1" value="1">
+      <button class="btn" id="submitBtn">Complete Check-in</button>
+    </div>
+
+    <div class="g-card g-success hidden" id="successCard">
+      <div class="check">&#10003;</div>
+      <h1 style="font-size:22px;margin:4px 0;">You're checked in</h1>
+      <p class="muted" id="successMsg" style="color:#55627a;">
+        Reception will assign your room shortly. Enjoy your stay!
+      </p>
+    </div>
+  </div>
+
+  <script src="/static/js/checkin.js"></script>
+</body>
+</html>

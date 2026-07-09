@@ -1,0 +1,524 @@
+"""
+GuestIQ - hotel guest check-in + in-room info system.
+FastAPI + SQLite. Serves an admin dashboard and two QR-driven guest flows:
+  1. /checkin        -> guest self check-in form (arrival QR)
+  2. /room/{code}    -> in-room info: wifi, restaurant, menu, etc. (per-room QR)
+"""
+import os
+import datetime as dt
+from typing import Optional
+
+from fastapi import FastAPI, Request, HTTPException, Header, Depends
+from fastapi.responses import (
+    JSONResponse, StreamingResponse, FileResponse, RedirectResponse,
+)
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+import io
+
+from . import database as db
+from .qr import make_qr_png
+from . import updater
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FRONTEND = os.path.join(ROOT, "frontend")
+
+app = FastAPI(title="GuestIQ", version=updater.get_local_version())
+
+
+@app.on_event("startup")
+def _startup():
+    db.init_db()
+
+
+def _now():
+    return dt.datetime.utcnow().isoformat(timespec="seconds")
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+def require_admin(
+    authorization: Optional[str] = Header(None),
+    x_auth_token: Optional[str] = Header(None),
+):
+    token = x_auth_token
+    if not token and authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:]
+    if not db.session_valid(token):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return token
+
+
+class LoginIn(BaseModel):
+    password: str
+
+
+@app.post("/api/login")
+def login(body: LoginIn):
+    with db.get_db() as conn:
+        row = conn.execute("SELECT admin_password FROM settings WHERE id = 1").fetchone()
+    if not row or not db.verify_password(body.password, row["admin_password"]):
+        raise HTTPException(status_code=401, detail="Wrong password")
+    return {"token": db.create_session()}
+
+
+@app.post("/api/logout")
+def logout(token: str = Depends(require_admin)):
+    db.destroy_session(token)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+class SettingsIn(BaseModel):
+    hotel_name: Optional[str] = None
+    address: Optional[str] = None
+    public_url: Optional[str] = None
+    reception_phone: Optional[str] = None
+    restaurant_name: Optional[str] = None
+    restaurant_phone: Optional[str] = None
+    menu_url: Optional[str] = None
+    emergency_number: Optional[str] = None
+    checkout_time: Optional[str] = None
+    welcome_message: Optional[str] = None
+
+
+class PasswordIn(BaseModel):
+    new_password: str
+
+
+def _settings_row():
+    with db.get_db() as conn:
+        return dict(conn.execute("SELECT * FROM settings WHERE id = 1").fetchone())
+
+
+@app.get("/api/settings")
+def get_settings(token: str = Depends(require_admin)):
+    s = _settings_row()
+    s.pop("admin_password", None)
+    return s
+
+
+@app.put("/api/settings")
+def update_settings(body: SettingsIn, token: str = Depends(require_admin)):
+    fields = {k: v for k, v in body.dict().items() if v is not None}
+    if fields:
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with db.get_db() as conn:
+            conn.execute(
+                f"UPDATE settings SET {sets}, updated_at = ? WHERE id = 1",
+                (*fields.values(), _now()),
+            )
+    return get_settings(token)
+
+
+@app.post("/api/settings/password")
+def change_password(body: PasswordIn, token: str = Depends(require_admin)):
+    if len(body.new_password) < 4:
+        raise HTTPException(status_code=400, detail="Password too short")
+    with db.get_db() as conn:
+        conn.execute(
+            "UPDATE settings SET admin_password = ?, updated_at = ? WHERE id = 1",
+            (db.hash_password(body.new_password), _now()),
+        )
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Rooms
+# ---------------------------------------------------------------------------
+def _slugify(text: str) -> str:
+    import re
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", text.strip().lower()).strip("-")
+    return s or "room"
+
+
+class RoomIn(BaseModel):
+    room_number: str
+    room_name: Optional[str] = ""
+    floor: Optional[str] = ""
+    wifi_ssid: Optional[str] = ""
+    wifi_password: Optional[str] = ""
+    description: Optional[str] = ""
+
+
+@app.get("/api/rooms")
+def list_rooms(token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        rooms = [dict(r) for r in conn.execute("SELECT * FROM rooms ORDER BY room_number").fetchall()]
+        # attach current occupant
+        for r in rooms:
+            occ = conn.execute(
+                """SELECT g.full_name, s.check_out_at FROM stays s
+                   JOIN guests g ON g.id = s.guest_id
+                   WHERE s.room_id = ? AND s.status = 'checked_in'
+                   ORDER BY s.id DESC LIMIT 1""",
+                (r["id"],),
+            ).fetchone()
+            r["occupant"] = dict(occ) if occ else None
+    return rooms
+
+
+@app.post("/api/rooms")
+def create_room(body: RoomIn, token: str = Depends(require_admin)):
+    base = _slugify(f"{body.room_number}-{body.room_name}" if body.room_name else body.room_number)
+    with db.get_db() as conn:
+        code, n = base, 1
+        while conn.execute("SELECT 1 FROM rooms WHERE room_code = ?", (code,)).fetchone():
+            n += 1
+            code = f"{base}-{n}"
+        cur = conn.execute(
+            """INSERT INTO rooms (room_number, room_name, floor, room_code,
+                 wifi_ssid, wifi_password, description, status, created_at)
+               VALUES (?,?,?,?,?,?,?, 'available', ?)""",
+            (body.room_number, body.room_name, body.floor, code,
+             body.wifi_ssid, body.wifi_password, body.description, _now()),
+        )
+        rid = cur.lastrowid
+        return dict(conn.execute("SELECT * FROM rooms WHERE id = ?", (rid,)).fetchone())
+
+
+@app.put("/api/rooms/{room_id}")
+def update_room(room_id: int, body: RoomIn, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM rooms WHERE id = ?", (room_id,)).fetchone():
+            raise HTTPException(404, "Room not found")
+        conn.execute(
+            """UPDATE rooms SET room_number=?, room_name=?, floor=?,
+                 wifi_ssid=?, wifi_password=?, description=? WHERE id=?""",
+            (body.room_number, body.room_name, body.floor,
+             body.wifi_ssid, body.wifi_password, body.description, room_id),
+        )
+        return dict(conn.execute("SELECT * FROM rooms WHERE id = ?", (room_id,)).fetchone())
+
+
+@app.delete("/api/rooms/{room_id}")
+def delete_room(room_id: int, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        conn.execute("DELETE FROM rooms WHERE id = ?", (room_id,))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Guest self check-in  (PUBLIC - reached via arrival QR)
+# ---------------------------------------------------------------------------
+class CheckinIn(BaseModel):
+    full_name: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    id_number: Optional[str] = ""
+    address: Optional[str] = ""
+    vehicle_reg: Optional[str] = ""
+    num_guests: Optional[int] = 1
+
+
+def _find_or_create_guest(conn, body: CheckinIn):
+    """Save guest for future: match on id_number, then email, then phone."""
+    row = None
+    for field in ("id_number", "email", "phone"):
+        val = getattr(body, field)
+        if val:
+            row = conn.execute(
+                f"SELECT * FROM guests WHERE {field} = ? AND {field} != '' LIMIT 1", (val,)
+            ).fetchone()
+            if row:
+                break
+    if row:
+        gid = row["id"]
+        conn.execute(
+            """UPDATE guests SET full_name=?, email=?, phone=?, id_number=?,
+                 address=?, vehicle_reg=?, updated_at=? WHERE id=?""",
+            (body.full_name, body.email, body.phone, body.id_number,
+             body.address, body.vehicle_reg, _now(), gid),
+        )
+        return gid, False
+    cur = conn.execute(
+        """INSERT INTO guests (full_name, email, phone, id_number, address,
+             vehicle_reg, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)""",
+        (body.full_name, body.email, body.phone, body.id_number,
+         body.address, body.vehicle_reg, _now(), _now()),
+    )
+    return cur.lastrowid, True
+
+
+@app.post("/api/checkin")
+def guest_checkin(body: CheckinIn):
+    if not body.full_name.strip():
+        raise HTTPException(400, "Name is required")
+    with db.get_db() as conn:
+        gid, is_new = _find_or_create_guest(conn, body)
+        conn.execute(
+            """INSERT INTO stays (guest_id, num_guests, status, source, created_at)
+               VALUES (?,?, 'pending', 'self', ?)""",
+            (gid, body.num_guests or 1, _now()),
+        )
+    return {"ok": True, "returning_guest": not is_new}
+
+
+# ---------------------------------------------------------------------------
+# Guests (admin)
+# ---------------------------------------------------------------------------
+class GuestIn(BaseModel):
+    full_name: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    id_number: Optional[str] = ""
+    address: Optional[str] = ""
+    vehicle_reg: Optional[str] = ""
+    notes: Optional[str] = ""
+
+
+@app.get("/api/guests")
+def list_guests(q: Optional[str] = None, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        if q:
+            like = f"%{q}%"
+            rows = conn.execute(
+                """SELECT * FROM guests WHERE full_name LIKE ? OR email LIKE ?
+                   OR phone LIKE ? OR id_number LIKE ? ORDER BY updated_at DESC""",
+                (like, like, like, like),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM guests ORDER BY updated_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+
+@app.put("/api/guests/{guest_id}")
+def update_guest(guest_id: int, body: GuestIn, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        conn.execute(
+            """UPDATE guests SET full_name=?, email=?, phone=?, id_number=?,
+                 address=?, vehicle_reg=?, notes=?, updated_at=? WHERE id=?""",
+            (body.full_name, body.email, body.phone, body.id_number,
+             body.address, body.vehicle_reg, body.notes, _now(), guest_id),
+        )
+        return dict(conn.execute("SELECT * FROM guests WHERE id=?", (guest_id,)).fetchone())
+
+
+@app.delete("/api/guests/{guest_id}")
+def delete_guest(guest_id: int, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        conn.execute("DELETE FROM guests WHERE id = ?", (guest_id,))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Stays / check-in management (admin)
+# ---------------------------------------------------------------------------
+class AssignIn(BaseModel):
+    room_id: int
+    check_in_at: Optional[str] = None
+    check_out_at: str          # "how long" -> checkout date/time
+
+
+class ManualStayIn(BaseModel):
+    guest: GuestIn
+    room_id: int
+    check_in_at: Optional[str] = None
+    check_out_at: str
+    num_guests: Optional[int] = 1
+
+
+def _stay_row(conn, sid):
+    return conn.execute(
+        """SELECT s.*, g.full_name, g.email, g.phone, g.id_number,
+                  g.address, g.vehicle_reg,
+                  r.room_number, r.room_name, r.room_code
+           FROM stays s JOIN guests g ON g.id = s.guest_id
+           LEFT JOIN rooms r ON r.id = s.room_id WHERE s.id = ?""",
+        (sid,),
+    ).fetchone()
+
+
+@app.get("/api/stays")
+def list_stays(status: Optional[str] = None, token: str = Depends(require_admin)):
+    q = """SELECT s.*, g.full_name, g.email, g.phone, g.id_number,
+                  r.room_number, r.room_name
+           FROM stays s JOIN guests g ON g.id = s.guest_id
+           LEFT JOIN rooms r ON r.id = s.room_id"""
+    params = ()
+    if status:
+        q += " WHERE s.status = ?"
+        params = (status,)
+    q += " ORDER BY s.created_at DESC"
+    with db.get_db() as conn:
+        return [dict(r) for r in conn.execute(q, params).fetchall()]
+
+
+@app.post("/api/stays/{stay_id}/assign")
+def assign_room(stay_id: int, body: AssignIn, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        st = conn.execute("SELECT * FROM stays WHERE id = ?", (stay_id,)).fetchone()
+        if not st:
+            raise HTTPException(404, "Stay not found")
+        if not conn.execute("SELECT 1 FROM rooms WHERE id = ?", (body.room_id,)).fetchone():
+            raise HTTPException(404, "Room not found")
+        conn.execute(
+            """UPDATE stays SET room_id=?, check_in_at=?, check_out_at=?,
+                 status='checked_in' WHERE id=?""",
+            (body.room_id, body.check_in_at or _now(), body.check_out_at, stay_id),
+        )
+        conn.execute("UPDATE rooms SET status='occupied' WHERE id=?", (body.room_id,))
+        return dict(_stay_row(conn, stay_id))
+
+
+@app.post("/api/stays")
+def manual_stay(body: ManualStayIn, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        g = body.guest
+        gid, _ = _find_or_create_guest(conn, CheckinIn(**g.dict()))
+        cur = conn.execute(
+            """INSERT INTO stays (guest_id, room_id, check_in_at, check_out_at,
+                 num_guests, status, source, created_at)
+               VALUES (?,?,?,?,?, 'checked_in', 'admin', ?)""",
+            (gid, body.room_id, body.check_in_at or _now(), body.check_out_at,
+             body.num_guests or 1, _now()),
+        )
+        conn.execute("UPDATE rooms SET status='occupied' WHERE id=?", (body.room_id,))
+        return dict(_stay_row(conn, cur.lastrowid))
+
+
+@app.post("/api/stays/{stay_id}/checkout")
+def checkout_stay(stay_id: int, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        st = conn.execute("SELECT * FROM stays WHERE id = ?", (stay_id,)).fetchone()
+        if not st:
+            raise HTTPException(404, "Stay not found")
+        conn.execute("UPDATE stays SET status='checked_out' WHERE id=?", (stay_id,))
+        if st["room_id"]:
+            conn.execute("UPDATE rooms SET status='available' WHERE id=?", (st["room_id"],))
+    return {"ok": True}
+
+
+@app.post("/api/stays/{stay_id}/cancel")
+def cancel_stay(stay_id: int, token: str = Depends(require_admin)):
+    with db.get_db() as conn:
+        conn.execute("UPDATE stays SET status='cancelled' WHERE id=?", (stay_id,))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Public room info (reached via per-room QR)  /api/room/{code}
+# ---------------------------------------------------------------------------
+@app.get("/api/room/{code}")
+def public_room_info(code: str):
+    with db.get_db() as conn:
+        room = conn.execute("SELECT * FROM rooms WHERE room_code = ?", (code,)).fetchone()
+        if not room:
+            raise HTTPException(404, "Room not found")
+        s = dict(conn.execute("SELECT * FROM settings WHERE id = 1").fetchone())
+        occ = conn.execute(
+            """SELECT g.full_name, s.check_out_at FROM stays s
+               JOIN guests g ON g.id = s.guest_id
+               WHERE s.room_id = ? AND s.status='checked_in'
+               ORDER BY s.id DESC LIMIT 1""",
+            (room["id"],),
+        ).fetchone()
+    return {
+        "room": {
+            "room_number": room["room_number"],
+            "room_name": room["room_name"],
+            "floor": room["floor"],
+            "wifi_ssid": room["wifi_ssid"],
+            "wifi_password": room["wifi_password"],
+            "description": room["description"],
+        },
+        "occupant": dict(occ) if occ else None,
+        "hotel": {
+            "hotel_name": s["hotel_name"],
+            "address": s["address"],
+            "reception_phone": s["reception_phone"],
+            "restaurant_name": s["restaurant_name"],
+            "restaurant_phone": s["restaurant_phone"],
+            "menu_url": s["menu_url"],
+            "emergency_number": s["emergency_number"],
+            "checkout_time": s["checkout_time"],
+            "welcome_message": s["welcome_message"],
+        },
+    }
+
+
+# public branding for the check-in page header
+@app.get("/api/public/branding")
+def public_branding():
+    s = _settings_row()
+    return {"hotel_name": s["hotel_name"], "welcome_message": s["welcome_message"],
+            "address": s["address"]}
+
+
+# ---------------------------------------------------------------------------
+# QR endpoints
+# ---------------------------------------------------------------------------
+def _base_url(request: Request) -> str:
+    s = _settings_row()
+    if s.get("public_url"):
+        return s["public_url"].rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+@app.get("/api/qr/checkin.png")
+def qr_checkin(request: Request):
+    url = f"{_base_url(request)}/checkin"
+    return StreamingResponse(io.BytesIO(make_qr_png(url)), media_type="image/png")
+
+
+@app.get("/api/qr/room/{code}.png")
+def qr_room(code: str, request: Request):
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM rooms WHERE room_code = ?", (code,)).fetchone():
+            raise HTTPException(404, "Room not found")
+    url = f"{_base_url(request)}/room/{code}"
+    return StreamingResponse(io.BytesIO(make_qr_png(url)), media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# Version + updater
+# ---------------------------------------------------------------------------
+@app.get("/api/version")
+def version():
+    return {"version": updater.get_local_version(),
+            "versions": updater.list_local_versions()}
+
+
+@app.get("/api/update/check")
+def update_check(token: str = Depends(require_admin)):
+    return updater.check_updates()
+
+
+@app.post("/api/update/apply")
+def update_apply(token: str = Depends(require_admin)):
+    return updater.request_update()
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "version": updater.get_local_version()}
+
+
+# ---------------------------------------------------------------------------
+# Frontend page routes
+# ---------------------------------------------------------------------------
+@app.get("/")
+def root():
+    return RedirectResponse("/admin")
+
+
+@app.get("/admin")
+def admin_page():
+    return FileResponse(os.path.join(FRONTEND, "admin.html"))
+
+
+@app.get("/checkin")
+def checkin_page():
+    return FileResponse(os.path.join(FRONTEND, "checkin.html"))
+
+
+@app.get("/room/{code}")
+def room_page(code: str):
+    return FileResponse(os.path.join(FRONTEND, "room.html"))
+
+
+# static assets (css/js)
+app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
