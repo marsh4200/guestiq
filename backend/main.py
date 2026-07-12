@@ -558,6 +558,11 @@ def update_apply(token: str = Depends(require_admin)):
     return updater.request_update()
 
 
+@app.get("/api/update/status")
+def update_status(token: str = Depends(require_admin)):
+    return updater.update_status()
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "version": updater.get_local_version()}

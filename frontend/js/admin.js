@@ -53,10 +53,44 @@ async function doLogout() {
   logoutLocal();
 }
 
+/* ------------------------------ nav ------------------------------ */
+const ICONS = {
+  checkins: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>',
+  rooms: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>',
+  guests: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  qr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/><path d="M20 14h1v1h-1z"/><path d="M14 20h1v1h-1z"/><path d="M20 20h1v1h-1z"/></svg>',
+  automation: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  updates: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+};
+const NAV = [
+  { id: 'checkins', label: 'Check-ins' },
+  { id: 'rooms', label: 'Rooms' },
+  { id: 'guests', label: 'Guests' },
+  { id: 'qr', label: 'QR Codes' },
+  { id: 'automation', label: 'Automation' },
+  { id: 'settings', label: 'Settings' },
+  { id: 'updates', label: 'Updates' },
+];
+function renderNav() {
+  document.getElementById('tabs').innerHTML = NAV.map(n => `
+    <button class="nav-item" data-tab="${n.id}" onclick="switchTab('${n.id}')">
+      ${ICONS[n.id] || ''}<span>${n.label}</span>
+      <span class="nav-badge hidden" id="navBadge-${n.id}"></span>
+    </button>`).join('');
+}
+function setNavBadge(tab, count) {
+  const b = document.getElementById('navBadge-' + tab);
+  if (!b) return;
+  if (count > 0) { b.textContent = count; b.classList.remove('hidden'); }
+  else b.classList.add('hidden');
+}
+
 /* ------------------------------ shell ------------------------------ */
 async function showApp() {
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
+  renderNav();
   await loadVersion();
   switchTab('checkins');
   checkUpdatesQuietly();
@@ -69,12 +103,12 @@ async function loadVersion() {
   } catch (e) {}
 }
 
-const TABS = ['checkins', 'rooms', 'guests', 'qr', 'automation', 'settings', 'updates'];
+const TABS = NAV.map(n => n.id);
 function switchTab(name) {
   TABS.forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
   });
-  document.querySelectorAll('.tab').forEach(b =>
+  document.querySelectorAll('.nav-item').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === name));
   const fn = { checkins: renderCheckins, rooms: renderRooms, guests: renderGuests,
     qr: renderQR, automation: renderAutomation, settings: renderSettings,
@@ -82,12 +116,40 @@ function switchTab(name) {
   if (fn) fn();
 }
 
-/* modal helper */
-function openModal(html) {
+/* --------------------------- modal system --------------------------- */
+function openModal(html, opts = {}) {
+  const { title = '', icon = '', iconClass = '' } = opts;
+  const head = title ? `
+    <div class="modal-head">
+      ${icon ? `<div class="modal-ico ${iconClass}">${icon}</div>` : ''}
+      <h3>${title}</h3>
+      <button class="modal-x" onclick="closeModal()" title="Close">✕</button>
+    </div>` : '';
   document.getElementById('modalRoot').innerHTML =
-    `<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`;
+    `<div class="overlay" onclick="if(event.target===this)closeModal()">
+       <div class="modal">${head}<div class="modal-body">${html}</div></div>
+     </div>`;
 }
 function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
+
+/* styled confirm — replaces window.confirm() */
+let _confirmCb = null;
+function confirmModal({ title, message, detailHtml = '', okText = 'Confirm',
+                        okClass = '', icon = '!', iconClass = 'amber', onOk }) {
+  _confirmCb = onOk;
+  openModal(`
+    ${message ? `<p style="margin:4px 0 10px;font-size:14px;">${message}</p>` : ''}
+    ${detailHtml}
+    <div class="row end" style="margin-top:18px;">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn ${okClass}" onclick="_runConfirm(this)">${okText}</button>
+    </div>`, { title, icon, iconClass });
+}
+async function _runConfirm(btn) {
+  if (!_confirmCb) { closeModal(); return; }
+  btn.disabled = true;
+  try { await _confirmCb(); } finally { _confirmCb = null; }
+}
 
 /* ========================== CHECK-INS TAB ========================== */
 async function renderCheckins() {
@@ -98,6 +160,10 @@ async function renderCheckins() {
     api('/api/stays?status=checked_in'),
   ]);
   ROOMS = await api('/api/rooms');
+  window._pending = pending;
+  window._active = active;
+  setNavBadge('checkins', pending.length);
+  const freeRooms = ROOMS.filter(r => r.status === 'available').length;
 
   const pendingRows = pending.length ? pending.map(s => `
     <tr>
@@ -119,11 +185,17 @@ async function renderCheckins() {
       <td>${esc((s.check_in_at||'').replace('T',' ').slice(0,16))}</td>
       <td>${esc((s.check_out_at||'').replace('T',' ').slice(0,16))}</td>
       <td class="row end">
-        <button class="btn amber sm" onclick="checkoutStay(${s.id})">Check out</button>
+        <button class="btn amber sm" onclick="openCheckout(${s.id})">Check out</button>
       </td>
     </tr>`).join('') : `<tr><td colspan="5" class="empty">No active guests</td></tr>`;
 
   el.innerHTML = `
+    <div class="stats">
+      <div class="stat amber"><div class="num">${pending.length}</div><div class="lbl">Pending arrivals</div></div>
+      <div class="stat green"><div class="num">${active.length}</div><div class="lbl">Guests in-house</div></div>
+      <div class="stat blue"><div class="num">${freeRooms}</div><div class="lbl">Rooms available</div></div>
+      <div class="stat"><div class="num">${ROOMS.length}</div><div class="lbl">Total rooms</div></div>
+    </div>
     <div class="grid">
       <div class="card">
         <h2>Pending arrivals ${pending.length ? '· ' + pending.length : ''}</h2>
@@ -158,8 +230,10 @@ function openAssign(stayId) {
   if (!ROOMS.some(r => r.status === 'available')) {
     toast('No available rooms — add or free one up first');
   }
+  const s = (window._pending || []).find(x => x.id === stayId) || {};
   openModal(`
-    <h3>Assign room</h3>
+    ${s.full_name ? `<div class="sumbox"><div class="sumrow">
+      <span class="k">Guest</span><span class="v">${esc(s.full_name)}</span></div></div>` : ''}
     <label>Room</label>
     <select id="asRoom">${roomOptions(null)}</select>
     <label>Check-out (how long they stay)</label>
@@ -167,7 +241,7 @@ function openAssign(stayId) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn green" onclick="submitAssign(${stayId})">Check in guest</button>
-    </div>`);
+    </div>`, { title: 'Assign room', icon: '🛏', iconClass: 'green' });
 }
 async function submitAssign(stayId) {
   const room_id = parseInt(document.getElementById('asRoom').value, 10);
@@ -183,7 +257,6 @@ async function submitAssign(stayId) {
 
 function openManualStay() {
   openModal(`
-    <h3>Manual check-in</h3>
     <label>Full name *</label><input id="mName">
     <div class="grid cols-2">
       <div><label>Phone</label><input id="mPhone"></div>
@@ -198,7 +271,7 @@ function openManualStay() {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn green" onclick="submitManualStay()">Check in</button>
-    </div>`);
+    </div>`, { title: 'Manual check-in', icon: '✍️', iconClass: 'blue' });
 }
 async function submitManualStay() {
   const name = document.getElementById('mName').value.trim();
@@ -218,15 +291,48 @@ async function submitManualStay() {
   } catch (e) { toast(e.message); }
 }
 
-async function checkoutStay(id) {
-  if (!confirm('Check out this guest and free the room?')) return;
-  await api(`/api/stays/${id}/checkout`, { method: 'POST' });
-  toast('Checked out'); renderCheckins();
+/* proper checkout modal with guest summary */
+function openCheckout(id) {
+  const s = (window._active || []).find(x => x.id === id) || {};
+  const room = s.room_number
+    ? esc(s.room_number) + (s.room_name ? ' · ' + esc(s.room_name) : '') : '—';
+  confirmModal({
+    title: 'Check out guest',
+    icon: '👋', iconClass: 'amber',
+    message: '',
+    detailHtml: `
+      <div class="sumbox">
+        <div class="sumrow"><span class="k">Guest</span><span class="v">${esc(s.full_name || '—')}</span></div>
+        <div class="sumrow"><span class="k">Room</span><span class="v">${room}</span></div>
+        <div class="sumrow"><span class="k">Checked in</span><span class="v">${esc((s.check_in_at||'—').replace('T',' ').slice(0,16))}</span></div>
+        <div class="sumrow"><span class="k">Due out</span><span class="v">${esc((s.check_out_at||'—').replace('T',' ').slice(0,16))}</span></div>
+      </div>
+      <p class="muted" style="font-size:13px;margin:10px 0 0;">
+        The room will be marked <b style="color:var(--green);">available</b> and
+        Home Assistant automations (geyser etc.) will switch to unoccupied.</p>`,
+    okText: 'Check out', okClass: 'amber',
+    onOk: async () => {
+      try {
+        await api(`/api/stays/${id}/checkout`, { method: 'POST' });
+        closeModal(); toast('Guest checked out'); renderCheckins();
+      } catch (e) { toast(e.message); closeModal(); }
+    },
+  });
 }
-async function cancelStay(id) {
-  if (!confirm('Cancel this pending check-in?')) return;
-  await api(`/api/stays/${id}/cancel`, { method: 'POST' });
-  renderCheckins();
+function cancelStay(id) {
+  const s = (window._pending || []).find(x => x.id === id) || {};
+  confirmModal({
+    title: 'Cancel check-in',
+    icon: '✕', iconClass: 'red',
+    message: `Cancel the pending check-in for <b>${esc(s.full_name || 'this guest')}</b>?`,
+    okText: 'Cancel check-in', okClass: 'red',
+    onOk: async () => {
+      try {
+        await api(`/api/stays/${id}/cancel`, { method: 'POST' });
+        closeModal(); toast('Check-in cancelled'); renderCheckins();
+      } catch (e) { toast(e.message); closeModal(); }
+    },
+  });
 }
 
 /* ============================ ROOMS TAB ============================ */
@@ -260,7 +366,6 @@ async function renderRooms() {
 function editRoom(id) {
   const r = id ? ROOMS.find(x => x.id === id) : {};
   openModal(`
-    <h3>${id ? 'Edit' : 'Add'} room</h3>
     <div class="grid cols-2">
       <div><label>Room number *</label><input id="rNum" value="${esc(r.room_number||'')}"></div>
       <div><label>Room name</label><input id="rName" value="${esc(r.room_name||'')}"></div>
@@ -274,7 +379,7 @@ function editRoom(id) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn" onclick="saveRoom(${id||'null'})">Save</button>
-    </div>`);
+    </div>`, { title: (id ? 'Edit' : 'Add') + ' room', icon: '🛏', iconClass: 'blue' });
 }
 async function saveRoom(id) {
   const body = {
@@ -292,15 +397,25 @@ async function saveRoom(id) {
     closeModal(); toast('Saved'); renderRooms();
   } catch (e) { toast(e.message); }
 }
-async function delRoom(id) {
-  if (!confirm('Delete this room?')) return;
-  await api('/api/rooms/' + id, { method: 'DELETE' });
-  renderRooms();
+function delRoom(id) {
+  const r = ROOMS.find(x => x.id === id) || {};
+  confirmModal({
+    title: 'Delete room',
+    icon: '🗑', iconClass: 'red',
+    message: `Delete room <b>${esc(r.room_number || '')}</b>${r.room_name ? ' · ' + esc(r.room_name) : ''}?
+      This can't be undone.`,
+    okText: 'Delete', okClass: 'red',
+    onOk: async () => {
+      try {
+        await api('/api/rooms/' + id, { method: 'DELETE' });
+        closeModal(); toast('Room deleted'); renderRooms();
+      } catch (e) { toast(e.message); closeModal(); }
+    },
+  });
 }
 function showRoomQR(code, num) {
   const url = location.origin + '/room/' + code;
   openModal(`
-    <h3>Room ${esc(num)} — guest QR</h3>
     <div class="qr-box">
       <img src="/api/qr/room/${encodeURIComponent(code)}.png" alt="QR">
       <div class="url">${esc(url)}</div>
@@ -310,7 +425,7 @@ function showRoomQR(code, num) {
     <div class="row end">
       <a class="btn ghost" href="/api/qr/room/${encodeURIComponent(code)}.png" download="room-${esc(num)}-qr.png">Download PNG</a>
       <button class="btn" onclick="closeModal()">Close</button>
-    </div>`);
+    </div>`, { title: `Room ${esc(num)} — guest QR`, icon: '▦', iconClass: 'blue' });
 }
 
 /* ============================ GUESTS TAB ============================ */
@@ -344,7 +459,6 @@ async function renderGuests(q) {
 function editGuest(id) {
   const g = (window._guests || []).find(x => x.id === id) || {};
   openModal(`
-    <h3>Edit guest</h3>
     <label>Full name</label><input id="egName" value="${esc(g.full_name||'')}">
     <div class="grid cols-2">
       <div><label>Phone</label><input id="egPhone" value="${esc(g.phone||'')}"></div>
@@ -357,7 +471,7 @@ function editGuest(id) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn" onclick="saveGuest(${id})">Save</button>
-    </div>`);
+    </div>`, { title: 'Edit guest', icon: '👤', iconClass: 'blue' });
 }
 async function saveGuest(id) {
   const body = {
@@ -373,10 +487,20 @@ async function saveGuest(id) {
   await api('/api/guests/' + id, { method: 'PUT', body: JSON.stringify(body) });
   closeModal(); toast('Saved'); renderGuests();
 }
-async function delGuest(id) {
-  if (!confirm('Delete this guest record?')) return;
-  await api('/api/guests/' + id, { method: 'DELETE' });
-  renderGuests();
+function delGuest(id) {
+  const g = (window._guests || []).find(x => x.id === id) || {};
+  confirmModal({
+    title: 'Delete guest record',
+    icon: '🗑', iconClass: 'red',
+    message: `Delete the record for <b>${esc(g.full_name || 'this guest')}</b>? This can't be undone.`,
+    okText: 'Delete', okClass: 'red',
+    onOk: async () => {
+      try {
+        await api('/api/guests/' + id, { method: 'DELETE' });
+        closeModal(); toast('Guest deleted'); renderGuests();
+      } catch (e) { toast(e.message); closeModal(); }
+    },
+  });
 }
 
 /* ============================== QR TAB ============================== */
@@ -483,8 +607,12 @@ async function checkUpdatesQuietly() {
     const btn = document.getElementById('updateBtn');
     if (u.update_available) {
       btn.innerHTML = `<span class="update-dot"></span>Update to v${u.remote}`;
+      btn.classList.add('has-update');
+      setNavBadge('updates', 1);
     } else {
       btn.textContent = 'Up to date';
+      btn.classList.remove('has-update');
+      setNavBadge('updates', 0);
     }
   } catch (e) {}
 }
@@ -504,7 +632,7 @@ async function renderUpdates() {
         <p class="muted" style="font-size:13px;">Repo: ${esc(u.repo)} · ${esc(u.branch)}</p>
         ${u.update_available ? `
           <div class="row" style="margin-top:12px;">
-            <button class="btn green" onclick="applyUpdate()">Update now</button>
+            <button class="btn green" onclick="applyUpdate('${esc(u.local)}','${esc(u.remote)}')">Update now</button>
             <button class="btn ghost" onclick="renderUpdates()">Re-check</button>
           </div>` : `
           <p style="color:var(--green);font-weight:600;">✓ You're on the latest version.</p>
@@ -517,17 +645,214 @@ async function renderUpdates() {
       </div>
     </div>`;
 }
-async function applyUpdate() {
-  if (!confirm('Pull the latest version and rebuild? The service will restart briefly.')) return;
+
+/* ---------------------- live update progress ---------------------- */
+const UP_STEPS = [
+  { id: 'queue', label: 'Queue update request' },
+  { id: 'watcher', label: 'Host watcher picks it up' },
+  { id: 'rebuild', label: 'Pull latest & rebuild container' },
+  { id: 'verify', label: 'Service back online — verify version' },
+];
+let _up = null;
+
+function applyUpdate(fromVer, toVer) {
+  confirmModal({
+    title: `Update to v${toVer}`,
+    icon: '⬆', iconClass: 'green',
+    message: `Pull <b>v${toVer}</b> from GitHub and rebuild the container?
+      The service restarts briefly and this page reloads automatically when done.`,
+    okText: 'Start update', okClass: 'green',
+    onOk: async () => { closeModal(); startUpdateFlow(fromVer, toVer); },
+  });
+}
+
+function upUI() {
+  const root = document.getElementById('updateOverlayRoot');
+  root.innerHTML = `
+    <div class="up-overlay">
+      <div class="up-card">
+        <div class="up-head">
+          <div class="up-spin" id="upSpin">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>
+          </div>
+          <div>
+            <h3 id="upTitle">Updating GuestIQ…</h3>
+            <p id="upSub">v${esc(_up.from)} → v${esc(_up.to)}</p>
+          </div>
+        </div>
+        <div class="progress"><div class="bar" id="upBar"></div></div>
+        <div class="up-pct"><span id="upPhase">Starting…</span><span id="upPct">0%</span></div>
+        <div class="up-steps" id="upSteps">
+          ${UP_STEPS.map(s => `
+            <div class="up-step" id="upStep-${s.id}"><span class="dot"></span>${s.label}</div>`).join('')}
+        </div>
+        <div class="up-log" id="upLog"></div>
+        <div class="up-foot row end" id="upFoot"></div>
+      </div>
+    </div>`;
+}
+function upLog(msg, cls) {
+  const el = document.getElementById('upLog');
+  if (!el) return;
+  const t = new Date().toTimeString().slice(0, 8);
+  el.innerHTML += `<span class="${cls || ''}">[${t}] ${esc(msg)}</span>\n`;
+  el.scrollTop = el.scrollHeight;
+}
+function upSetProgress(pct, phase) {
+  const bar = document.getElementById('upBar');
+  if (bar) bar.style.width = Math.min(pct, 100) + '%';
+  const p = document.getElementById('upPct');
+  if (p) p.textContent = Math.round(Math.min(pct, 100)) + '%';
+  if (phase) {
+    const ph = document.getElementById('upPhase');
+    if (ph) ph.textContent = phase;
+  }
+}
+function upStep(id, state) { // 'active' | 'done'
+  const el = document.getElementById('upStep-' + id);
+  if (!el) return;
+  el.classList.remove('active', 'done');
+  if (state) el.classList.add(state);
+}
+function upCreep(from, to, ms) {
+  // slowly creep the bar between phase bounds while we wait
+  clearInterval(_up.creep);
+  let pct = from;
+  const stepAmt = (to - from) / (ms / 400);
+  _up.creep = setInterval(() => {
+    pct = Math.min(pct + stepAmt, to);
+    upSetProgress(pct);
+  }, 400);
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function startUpdateFlow(fromVer, toVer) {
+  _up = { from: fromVer, to: toVer, creep: null, cancelled: false };
+  upUI();
+
   try {
+    /* ---- Phase 1: queue ---- */
+    upStep('queue', 'active');
+    upSetProgress(3, 'Queuing update request');
+    upLog('Requesting update via API…');
     const r = await api('/api/update/apply', { method: 'POST' });
-    toast(r.message || 'Update queued');
-    openModal(`<h3>Update queued</h3>
-      <p class="muted">${esc(r.message)}</p>
-      <p class="muted" style="font-size:12.5px;">Manual fallback on the host:</p>
-      <pre style="background:var(--panel-2);padding:12px;border-radius:10px;font-size:12px;overflow:auto;">${esc(r.manual_command)}</pre>
-      <div class="row end"><button class="btn" onclick="closeModal()">OK</button></div>`);
-  } catch (e) { toast(e.message); }
+    _up.manual = r.manual_command || '';
+    upLog('Update flag written — waiting for host watcher.', 'ok');
+    upStep('queue', 'done');
+
+    /* ---- Phase 2: wait for watcher to consume the flag ---- */
+    upStep('watcher', 'active');
+    upSetProgress(10, 'Waiting for host watcher (checks every 30s)');
+    upCreep(10, 34, 40000);
+    const t0 = Date.now();
+    let picked = false, warned = false;
+    while (!picked) {
+      await sleep(3000);
+      try {
+        const st = await api('/api/update/status');
+        if (!st.flag_pending) { picked = true; break; }
+      } catch (e) {
+        // container may already be restarting — treat as picked up
+        picked = true; break;
+      }
+      const secs = Math.round((Date.now() - t0) / 1000);
+      if (secs > 45 && !warned) {
+        warned = true;
+        upLog('Still waiting… watcher polls every 30s, hang tight.', 'warn');
+      }
+      if (secs > 180) {
+        return upFail('The host watcher never picked up the request. ' +
+          'Is update.sh --watch (or its systemd service) running on the host?');
+      }
+    }
+    clearInterval(_up.creep);
+    upLog('Watcher picked up the request — pulling & rebuilding.', 'ok');
+    upStep('watcher', 'done');
+
+    /* ---- Phase 3: rebuild — poll health, expect downtime ---- */
+    upStep('rebuild', 'active');
+    upSetProgress(38, 'Pulling latest & rebuilding container');
+    upCreep(38, 84, 90000);
+    const t1 = Date.now();
+    let wentDown = false, newVer = null;
+    while (true) {
+      await sleep(2500);
+      let h = null;
+      try {
+        const resp = await fetch('/api/health', { cache: 'no-store' });
+        if (resp.ok) h = await resp.json();
+      } catch (e) { /* down */ }
+      if (!h) {
+        if (!wentDown) { wentDown = true; upLog('Service restarting…'); }
+      } else {
+        if (wentDown) upLog('Service is back online.', 'ok');
+        if (h.version && h.version !== fromVer) { newVer = h.version; break; }
+        // no downtime observed yet but version already changed
+        if (h.version && h.version === toVer) { newVer = h.version; break; }
+      }
+      if (Date.now() - t1 > 5 * 60 * 1000) {
+        return upFail('Rebuild is taking longer than 5 minutes. It may still ' +
+          'finish in the background — check the watcher logs on the host.');
+      }
+    }
+    clearInterval(_up.creep);
+    upStep('rebuild', 'done');
+
+    /* ---- Phase 4: verify + reload ---- */
+    upStep('verify', 'active');
+    upSetProgress(92, 'Verifying new version');
+    upLog(`Now running v${newVer}.`, 'ok');
+    await sleep(800);
+    upStep('verify', 'done');
+    upSetProgress(100, 'Update complete');
+    const bar = document.getElementById('upBar'); if (bar) bar.classList.add('done');
+    const spin = document.getElementById('upSpin');
+    if (spin) {
+      spin.classList.add('done');
+      spin.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    }
+    const title = document.getElementById('upTitle');
+    if (title) title.textContent = `Updated to v${newVer}`;
+    upLog('Reloading in 3 seconds…');
+    let n = 3;
+    const foot = document.getElementById('upFoot');
+    foot.innerHTML = `<button class="btn green" onclick="location.reload()">Reload now</button>`;
+    const cd = setInterval(() => {
+      n--; if (n <= 0) { clearInterval(cd); location.reload(); }
+    }, 1000);
+
+  } catch (e) {
+    upFail(e.message || 'Update failed');
+  }
+}
+
+function upFail(msg) {
+  clearInterval(_up && _up.creep);
+  upLog(msg, 'warn');
+  const bar = document.getElementById('upBar'); if (bar) bar.classList.add('err');
+  const spin = document.getElementById('upSpin');
+  if (spin) {
+    spin.classList.add('err');
+    spin.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  }
+  const title = document.getElementById('upTitle');
+  if (title) title.textContent = 'Update did not complete';
+  const ph = document.getElementById('upPhase');
+  if (ph) ph.textContent = 'Stopped';
+  const foot = document.getElementById('upFoot');
+  if (foot) foot.innerHTML = `
+    ${_up && _up.manual ? `<button class="btn ghost" onclick="upShowManual()">Manual command</button>` : ''}
+    <button class="btn" onclick="upClose()">Close</button>`;
+}
+function upShowManual() {
+  upLog('Run on the host: ' + (_up.manual || 'git pull && docker compose up -d --build'));
+}
+function upClose() {
+  clearInterval(_up && _up.creep);
+  document.getElementById('updateOverlayRoot').innerHTML = '';
+  renderUpdates();
 }
 
 /* ============================== boot ============================== */

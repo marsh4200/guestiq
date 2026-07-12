@@ -96,6 +96,21 @@ def check_updates():
     }
 
 
+def update_status():
+    """Live status for the update progress UI.
+
+    flag_pending=True  -> the in-app request is still waiting for the host
+                          watcher to pick it up (update.sh --watch).
+    flag_pending=False -> the watcher has consumed the flag (pull/rebuild
+                          in progress or done). The frontend then watches
+                          /api/health for the version to change.
+    """
+    return {
+        "flag_pending": os.path.exists(UPDATE_FLAG),
+        "version": get_local_version(),
+    }
+
+
 def request_update():
     """Drop the flag the host watcher looks for. Returns the manual fallback cmd."""
     os.makedirs(DATA_DIR, exist_ok=True)
