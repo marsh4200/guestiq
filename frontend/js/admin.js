@@ -569,12 +569,15 @@ async function renderAutomation() {
         </label>
         <label>Home Assistant URL (IP or hostname, with port)</label>
         <input id="haUrl" placeholder="http://192.168.1.50:8123" value="${esc(a.ha_url || '')}">
-        <label>Webhook ID</label>
-        <input id="haWebhook" placeholder="ar_smart_loadmanager_xxxxxxxx" value="${esc(a.ha_webhook_id || '')}">
+        <label>Long-lived access token</label>
+        <input id="haToken" type="password" placeholder="Paste token from HA"
+               value="${esc(a.ha_token || '')}">
         <p class="muted" style="font-size:12px;margin-top:4px;">
-          Found in HA on the Load Manager's Mode sensor attributes
-          (webhook_path) — use only the part after /api/webhook/.
+          In HA: click your user name (bottom left) → Security →
+          Long-lived access tokens → Create token. Paste it here.
         </p>
+        <label>Webhook ID (fallback, only used if no token)</label>
+        <input id="haWebhook" placeholder="ar_smart_loadmanager_xxxxxxxx" value="${esc(a.ha_webhook_id || '')}">
         <div class="row end" style="margin-top:14px;gap:8px;">
           <button class="btn ghost" onclick="testAutomation()">Test connection</button>
           <button class="btn" onclick="saveAutomation()">Save</button>
@@ -611,6 +614,7 @@ function _autoBody() {
     ha_enabled: document.getElementById('haEnabled').checked,
     ha_url: document.getElementById('haUrl').value.trim(),
     ha_webhook_id: document.getElementById('haWebhook').value.trim(),
+    ha_token: document.getElementById('haToken').value.trim(),
     ha_room_prefix: document.getElementById('haPrefix').value,
     ha_use_room_name: document.getElementById('haUseName').checked,
     ha_sync_minutes: parseInt(document.getElementById('haMins').value || '15', 10),

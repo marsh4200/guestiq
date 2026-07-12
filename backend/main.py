@@ -462,10 +462,11 @@ class AutomationIn(BaseModel):
     ha_room_prefix: Optional[str] = None
     ha_use_room_name: Optional[bool] = None
     ha_sync_minutes: Optional[int] = None
+    ha_token: Optional[str] = None
 
 
 AUTOMATION_FIELDS = (
-    "ha_enabled", "ha_url", "ha_webhook_id",
+    "ha_enabled", "ha_url", "ha_webhook_id", "ha_token",
     "ha_room_prefix", "ha_use_room_name", "ha_sync_minutes",
 )
 

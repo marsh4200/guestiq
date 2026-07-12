@@ -124,6 +124,7 @@ MIGRATIONS = [
     "ALTER TABLE settings ADD COLUMN ha_room_prefix TEXT DEFAULT 'Room '",
     "ALTER TABLE settings ADD COLUMN ha_use_room_name INTEGER DEFAULT 0",
     "ALTER TABLE settings ADD COLUMN ha_sync_minutes INTEGER DEFAULT 15",
+    "ALTER TABLE settings ADD COLUMN ha_token TEXT DEFAULT ''",
 ]
 
 
