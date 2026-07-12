@@ -542,7 +542,19 @@ async function applyUpdate() {
 /* ------------------------------ automation ------------------------------ */
 async function renderAutomation() {
   const el = document.getElementById('tab-automation');
-  const a = await api('/api/automation');
+  let a;
+  try {
+    a = await api('/api/automation');
+  } catch (e) {
+    el.innerHTML = `<div class="card"><h2>Automation</h2>
+      <p class="muted">Could not load automation settings: ${esc(e.message)}</p>
+      <p class="muted" style="font-size:13px;">The backend may still be on an
+      older version — make sure the container was rebuilt after updating
+      (backend/main.py, backend/database.py, backend/ha_sync.py) and that
+      httpx installed (requirements.txt).</p>
+      <button class="btn ghost" onclick="renderAutomation()">Retry</button></div>`;
+    return;
+  }
   el.innerHTML = `
     <div class="grid cols-2">
       <div class="card">
