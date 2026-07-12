@@ -19,6 +19,7 @@ import io
 from . import database as db
 from .qr import make_qr_png
 from . import updater
+from . import ha_sync
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND = os.path.join(ROOT, "frontend")
@@ -29,6 +30,7 @@ app = FastAPI(title="GuestIQ", version=updater.get_local_version())
 @app.on_event("startup")
 def _startup():
     db.init_db()
+    ha_sync.start_periodic()
 
 
 def _now():
@@ -361,7 +363,9 @@ def assign_room(stay_id: int, body: AssignIn, token: str = Depends(require_admin
             (body.room_id, body.check_in_at or _now(), body.check_out_at, stay_id),
         )
         conn.execute("UPDATE rooms SET status='occupied' WHERE id=?", (body.room_id,))
-        return dict(_stay_row(conn, stay_id))
+        result = dict(_stay_row(conn, stay_id))
+    ha_sync.notify_bg(result.get("room_number"), result.get("room_name"), True)
+    return result
 
 
 @app.post("/api/stays")
@@ -377,7 +381,9 @@ def manual_stay(body: ManualStayIn, token: str = Depends(require_admin)):
              body.num_guests or 1, _now()),
         )
         conn.execute("UPDATE rooms SET status='occupied' WHERE id=?", (body.room_id,))
-        return dict(_stay_row(conn, cur.lastrowid))
+        result = dict(_stay_row(conn, cur.lastrowid))
+    ha_sync.notify_bg(result.get("room_number"), result.get("room_name"), True)
+    return result
 
 
 @app.post("/api/stays/{stay_id}/checkout")
@@ -387,8 +393,14 @@ def checkout_stay(stay_id: int, token: str = Depends(require_admin)):
         if not st:
             raise HTTPException(404, "Stay not found")
         conn.execute("UPDATE stays SET status='checked_out' WHERE id=?", (stay_id,))
+        room = None
         if st["room_id"]:
             conn.execute("UPDATE rooms SET status='available' WHERE id=?", (st["room_id"],))
+            room = conn.execute(
+                "SELECT room_number, room_name FROM rooms WHERE id=?", (st["room_id"],)
+            ).fetchone()
+    if room:
+        ha_sync.notify_bg(room["room_number"], room["room_name"], False)
     return {"ok": True}
 
 
@@ -438,6 +450,59 @@ def public_room_info(code: str):
             "welcome_message": s["welcome_message"],
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Automation (Home Assistant bridge)
+# ---------------------------------------------------------------------------
+class AutomationIn(BaseModel):
+    ha_enabled: Optional[bool] = None
+    ha_url: Optional[str] = None
+    ha_webhook_id: Optional[str] = None
+    ha_room_prefix: Optional[str] = None
+    ha_use_room_name: Optional[bool] = None
+    ha_sync_minutes: Optional[int] = None
+
+
+AUTOMATION_FIELDS = (
+    "ha_enabled", "ha_url", "ha_webhook_id",
+    "ha_room_prefix", "ha_use_room_name", "ha_sync_minutes",
+)
+
+
+@app.get("/api/automation")
+def get_automation(token: str = Depends(require_admin)):
+    s = _settings_row()
+    return {k: s.get(k) for k in AUTOMATION_FIELDS}
+
+
+@app.put("/api/automation")
+def update_automation(body: AutomationIn, token: str = Depends(require_admin)):
+    fields = {}
+    for k in AUTOMATION_FIELDS:
+        v = getattr(body, k)
+        if v is not None:
+            fields[k] = int(v) if isinstance(v, bool) else v
+    if fields:
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with db.get_db() as conn:
+            conn.execute(
+                f"UPDATE settings SET {sets}, updated_at = ? WHERE id = 1",
+                (*fields.values(), _now()),
+            )
+    return get_automation(token)
+
+
+@app.post("/api/automation/test")
+def test_automation(token: str = Depends(require_admin)):
+    ok, msg = ha_sync.test_connection()
+    return {"ok": ok, "message": msg}
+
+
+@app.post("/api/automation/sync")
+def sync_automation(token: str = Depends(require_admin)):
+    ok, msg = ha_sync.full_sync()
+    return {"ok": ok, "message": "Synced all rooms to Home Assistant" if ok else msg}
 
 
 # public branding for the check-in page header

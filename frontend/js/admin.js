@@ -69,7 +69,7 @@ async function loadVersion() {
   } catch (e) {}
 }
 
-const TABS = ['checkins', 'rooms', 'guests', 'qr', 'settings', 'updates'];
+const TABS = ['checkins', 'rooms', 'guests', 'qr', 'automation', 'settings', 'updates'];
 function switchTab(name) {
   TABS.forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
@@ -77,7 +77,8 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === name));
   const fn = { checkins: renderCheckins, rooms: renderRooms, guests: renderGuests,
-    qr: renderQR, settings: renderSettings, updates: renderUpdates }[name];
+    qr: renderQR, automation: renderAutomation, settings: renderSettings,
+    updates: renderUpdates }[name];
   if (fn) fn();
 }
 
@@ -536,3 +537,97 @@ async function applyUpdate() {
     catch (e) { logoutLocal(); }
   }
 })();
+
+
+/* ------------------------------ automation ------------------------------ */
+async function renderAutomation() {
+  const el = document.getElementById('tab-automation');
+  const a = await api('/api/automation');
+  el.innerHTML = `
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>Home Assistant connection</h2>
+        <p class="muted" style="margin-top:0;font-size:13px;">
+          When a guest is checked in, their room's geyser (and any other
+          automations) switch on in Home Assistant. Check-out switches them back.
+        </p>
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="haEnabled" ${a.ha_enabled ? 'checked' : ''}
+                 style="width:auto;"> Enable Home Assistant sync
+        </label>
+        <label>Home Assistant URL (IP or hostname, with port)</label>
+        <input id="haUrl" placeholder="http://192.168.1.50:8123" value="${esc(a.ha_url || '')}">
+        <label>Webhook ID</label>
+        <input id="haWebhook" placeholder="ar_smart_loadmanager_xxxxxxxx" value="${esc(a.ha_webhook_id || '')}">
+        <p class="muted" style="font-size:12px;margin-top:4px;">
+          Found in HA on the Load Manager's Mode sensor attributes
+          (webhook_path) — use only the part after /api/webhook/.
+        </p>
+        <div class="row end" style="margin-top:14px;gap:8px;">
+          <button class="btn ghost" onclick="testAutomation()">Test connection</button>
+          <button class="btn" onclick="saveAutomation()">Save</button>
+        </div>
+        <p class="muted" id="haStatus" style="min-height:18px;font-size:13px;"></p>
+      </div>
+      <div class="card">
+        <h2>Room mapping & sync</h2>
+        <label>Room name prefix sent to HA</label>
+        <input id="haPrefix" value="${esc(a.ha_room_prefix == null ? 'Room ' : a.ha_room_prefix)}">
+        <p class="muted" style="font-size:12px;margin-top:4px;">
+          GuestIQ room 3 → "Room 3" in Home Assistant. Must match the room
+          names configured in the Load Manager.
+        </p>
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="haUseName" ${a.ha_use_room_name ? 'checked' : ''}
+                 style="width:auto;"> Use the room's name instead of its number
+        </label>
+        <label>Full sync interval (minutes, 0 = off)</label>
+        <input id="haMins" type="number" min="0" value="${a.ha_sync_minutes == null ? 15 : a.ha_sync_minutes}">
+        <p class="muted" style="font-size:12px;margin-top:4px;">
+          Pushes every room's occupancy on a timer so a missed event
+          self-heals automatically.
+        </p>
+        <div class="row end" style="margin-top:14px;">
+          <button class="btn ghost" onclick="syncAutomationNow()">Sync all rooms now</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _autoBody() {
+  return {
+    ha_enabled: document.getElementById('haEnabled').checked,
+    ha_url: document.getElementById('haUrl').value.trim(),
+    ha_webhook_id: document.getElementById('haWebhook').value.trim(),
+    ha_room_prefix: document.getElementById('haPrefix').value,
+    ha_use_room_name: document.getElementById('haUseName').checked,
+    ha_sync_minutes: parseInt(document.getElementById('haMins').value || '15', 10),
+  };
+}
+
+async function saveAutomation() {
+  try {
+    await api('/api/automation', { method: 'PUT', body: JSON.stringify(_autoBody()) });
+    toast('Automation settings saved');
+  } catch (e) { toast(e.message); }
+}
+
+async function testAutomation() {
+  const st = document.getElementById('haStatus');
+  st.textContent = 'Saving & testing…';
+  try {
+    await api('/api/automation', { method: 'PUT', body: JSON.stringify(_autoBody()) });
+    const r = await api('/api/automation/test', { method: 'POST' });
+    st.textContent = r.message;
+    st.style.color = r.ok ? 'var(--green, #3fb950)' : 'var(--red)';
+  } catch (e) {
+    st.textContent = e.message; st.style.color = 'var(--red)';
+  }
+}
+
+async function syncAutomationNow() {
+  try {
+    const r = await api('/api/automation/sync', { method: 'POST' });
+    toast(r.message);
+  } catch (e) { toast(e.message); }
+}

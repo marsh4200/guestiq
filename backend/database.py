@@ -117,9 +117,24 @@ CREATE TABLE IF NOT EXISTS sessions (
 """
 
 
+MIGRATIONS = [
+    "ALTER TABLE settings ADD COLUMN ha_enabled INTEGER DEFAULT 0",
+    "ALTER TABLE settings ADD COLUMN ha_url TEXT DEFAULT ''",
+    "ALTER TABLE settings ADD COLUMN ha_webhook_id TEXT DEFAULT ''",
+    "ALTER TABLE settings ADD COLUMN ha_room_prefix TEXT DEFAULT 'Room '",
+    "ALTER TABLE settings ADD COLUMN ha_use_room_name INTEGER DEFAULT 0",
+    "ALTER TABLE settings ADD COLUMN ha_sync_minutes INTEGER DEFAULT 15",
+]
+
+
 def init_db():
     with get_db() as conn:
         conn.executescript(SCHEMA)
+        for mig in MIGRATIONS:
+            try:
+                conn.execute(mig)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         # seed settings row
         row = conn.execute("SELECT id FROM settings WHERE id = 1").fetchone()
         if not row:
