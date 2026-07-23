@@ -2,7 +2,9 @@
 GuestIQ self-updater.
 
 - Local version comes from the VERSION file at the repo root.
-- Remote version is fetched from raw.githubusercontent.com.
+- Remote version is fetched from the update origin configured by
+  GUESTIQ_REPO / GUESTIQ_BRANCH. The origin is server-side only: the admin UI
+  is told nothing but the SOURCE_NAME label ("AR Smart server").
 - Applying an update writes a flag file into data/ which the host-side
   watcher (guestiq-watch.sh / systemd) picks up to run:  git pull + docker rebuild.
   This avoids fragile docker-in-docker while keeping a one-click "Update now".
@@ -13,6 +15,10 @@ import urllib.request
 
 REPO = os.environ.get("GUESTIQ_REPO", "marsh4200/guestiq")
 BRANCH = os.environ.get("GUESTIQ_BRANCH", "main")
+
+# Label shown to the operator in the Updates tab. The actual origin (repo /
+# branch / host) is never sent to the browser — only this name.
+SOURCE_NAME = os.environ.get("GUESTIQ_UPDATE_SOURCE", "AR Smart server")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERSION_FILE = os.path.join(ROOT, "VERSION")
@@ -91,8 +97,7 @@ def check_updates():
         "remote": remote,
         "update_available": available,
         "remote_changelog": get_remote_changelog(remote) if available else "",
-        "repo": REPO,
-        "branch": BRANCH,
+        "source": SOURCE_NAME,
     }
 
 
@@ -118,8 +123,8 @@ def request_update():
         json.dump({"requested": True}, f)
     return {
         "queued": True,
-        "message": "Update queued. The host watcher will pull the new version "
-                   "and rebuild the container within ~1 minute.",
+        "message": "Update queued. The update service will download the new "
+                   "version and rebuild within ~1 minute.",
         "manual_command": "cd $(dirname $(readlink -f $0)) && git pull && "
                           "docker compose up -d --build",
     }

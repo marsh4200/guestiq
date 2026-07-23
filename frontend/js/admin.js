@@ -848,15 +848,16 @@ async function renderUpdates() {
   el.innerHTML = '<div class="empty">Checking for updates…</div>';
   let u;
   try { u = await api('/api/update/check'); }
-  catch (e) { el.innerHTML = `<div class="card"><p class="muted">Could not reach GitHub to check for updates.</p></div>`; return; }
+  catch (e) { el.innerHTML = `<div class="card"><p class="muted">Could not reach the update server. Check this machine's internet connection and try again.</p>
+      <button class="btn ghost sm" style="margin-top:10px;" onclick="renderUpdates()">Retry</button></div>`; return; }
 
   el.innerHTML = `
     <div class="grid cols-2">
       <div class="card">
         <h2>Version</h2>
         <p style="font-size:15px;">Installed: <b>v${u.local}</b></p>
-        <p style="font-size:15px;">Latest on GitHub: <b>${u.remote ? 'v'+u.remote : 'unknown'}</b></p>
-        <p class="muted" style="font-size:13px;">Repo: ${esc(u.repo)} · ${esc(u.branch)}</p>
+        <p style="font-size:15px;">Latest on ${esc(u.source || 'AR Smart server')}:
+          <b>${u.remote ? 'v'+u.remote : 'unknown'}</b></p>
         ${u.update_available ? `
           <div class="row" style="margin-top:12px;">
             <button class="btn green" onclick="applyUpdate('${esc(u.local)}','${esc(u.remote)}')">Update now</button>
@@ -868,7 +869,8 @@ async function renderUpdates() {
       <div class="card">
         <h2>${u.update_available ? "What's new" : 'Update channel'}</h2>
         <pre style="white-space:pre-wrap;font-family:inherit;color:var(--muted);font-size:13px;margin:0;">${
-          esc(u.remote_changelog || 'The updater checks GitHub for a newer VERSION and pulls it via the host watcher, then rebuilds the container.')}</pre>
+          esc(u.remote_changelog || 'GuestIQ checks the ' + (u.source || 'AR Smart server') +
+             ' for a newer release, then downloads it and rebuilds itself automatically.')}</pre>
       </div>
     </div>`;
 }
@@ -876,8 +878,8 @@ async function renderUpdates() {
 /* ---------------------- live update progress ---------------------- */
 const UP_STEPS = [
   { id: 'queue', label: 'Queue update request' },
-  { id: 'watcher', label: 'Host watcher picks it up' },
-  { id: 'rebuild', label: 'Pull latest & rebuild container' },
+  { id: 'watcher', label: 'Update service picks it up' },
+  { id: 'rebuild', label: 'Download latest & rebuild' },
   { id: 'verify', label: 'Service back online — verify version' },
 ];
 let _up = null;
@@ -886,7 +888,7 @@ function applyUpdate(fromVer, toVer) {
   confirmModal({
     title: `Update to v${toVer}`,
     icon: '⬆', iconClass: 'green',
-    message: `Pull <b>v${toVer}</b> from GitHub and rebuild the container?
+    message: `Download <b>v${toVer}</b> from the AR Smart server and rebuild?
       The service restarts briefly and this page reloads automatically when done.`,
     okText: 'Start update', okClass: 'green',
     onOk: async () => { closeModal(); startUpdateFlow(fromVer, toVer); },
@@ -966,12 +968,12 @@ async function startUpdateFlow(fromVer, toVer) {
     upLog('Requesting update via API…');
     const r = await api('/api/update/apply', { method: 'POST' });
     _up.manual = r.manual_command || '';
-    upLog('Update flag written — waiting for host watcher.', 'ok');
+    upLog('Update queued — waiting for the update service.', 'ok');
     upStep('queue', 'done');
 
     /* ---- Phase 2: wait for watcher to consume the flag ---- */
     upStep('watcher', 'active');
-    upSetProgress(10, 'Waiting for host watcher (checks every 30s)');
+    upSetProgress(10, 'Waiting for the update service (checks every 30s)');
     upCreep(10, 34, 40000);
     const t0 = Date.now();
     let picked = false, warned = false;
@@ -987,20 +989,20 @@ async function startUpdateFlow(fromVer, toVer) {
       const secs = Math.round((Date.now() - t0) / 1000);
       if (secs > 45 && !warned) {
         warned = true;
-        upLog('Still waiting… watcher polls every 30s, hang tight.', 'warn');
+        upLog('Still waiting… the update service polls every 30s, hang tight.', 'warn');
       }
       if (secs > 180) {
-        return upFail('The host watcher never picked up the request. ' +
-          'Is update.sh --watch (or its systemd service) running on the host?');
+        return upFail('The update service never picked up the request. ' +
+          'Check that the GuestIQ update service is running on this server.');
       }
     }
     clearInterval(_up.creep);
-    upLog('Watcher picked up the request — pulling & rebuilding.', 'ok');
+    upLog('Request picked up — downloading & rebuilding.', 'ok');
     upStep('watcher', 'done');
 
     /* ---- Phase 3: rebuild — poll health, expect downtime ---- */
     upStep('rebuild', 'active');
-    upSetProgress(38, 'Pulling latest & rebuilding container');
+    upSetProgress(38, 'Downloading latest & rebuilding');
     upCreep(38, 84, 90000);
     const t1 = Date.now();
     let wentDown = false, newVer = null;
@@ -1020,8 +1022,8 @@ async function startUpdateFlow(fromVer, toVer) {
         if (h.version && h.version === toVer) { newVer = h.version; break; }
       }
       if (Date.now() - t1 > 5 * 60 * 1000) {
-        return upFail('Rebuild is taking longer than 5 minutes. It may still ' +
-          'finish in the background — check the watcher logs on the host.');
+        return upFail('The rebuild is taking longer than 5 minutes. It may still ' +
+          'finish in the background — check the update service logs on this server.');
       }
     }
     clearInterval(_up.creep);
