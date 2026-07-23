@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GuestIQ · Admin</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=1.4.3">
+  <link rel="stylesheet" href="/static/css/style.css?v=1.5.0">
 </head>
 <body>
   <!-- LOGIN -->
@@ -13,8 +13,12 @@
       <div class="login-logo">G</div>
       <div class="brand" style="margin-bottom:4px;">Guest<span>IQ</span></div>
       <p class="muted" style="margin-top:0;font-size:13px;">Hotel reception console</p>
+      <label>Username</label>
+      <input id="loginUser" placeholder="admin" autocomplete="username"
+        onkeydown="if(event.key==='Enter')document.getElementById('loginPw').focus()">
       <label>Password</label>
-      <input id="loginPw" type="password" placeholder="Admin password" onkeydown="if(event.key==='Enter')doLogin()">
+      <input id="loginPw" type="password" placeholder="Password" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter')doLogin()">
       <button class="btn" style="width:100%;margin-top:14px;" onclick="doLogin()">Sign in</button>
       <p class="muted" id="loginErr" style="color:var(--red);font-size:13px;min-height:18px;"></p>
     </div>
@@ -27,6 +31,7 @@
       <div class="brand">Guest<span>IQ</span></div>
       <span class="badge-ver" id="verBadge">v—</span>
       <div class="spacer"></div>
+      <span class="who" id="whoBadge"></span>
       <button class="btn ghost sm topbar-update" id="updateBtn" onclick="switchTab('updates')"></button>
       <button class="btn ghost sm icon-btn" onclick="doLogout()" title="Sign out">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -42,6 +47,7 @@
       <div id="tab-guests" class="hidden"></div>
       <div id="tab-qr" class="hidden"></div>
       <div id="tab-automation" class="hidden"></div>
+      <div id="tab-staff" class="hidden"></div>
       <div id="tab-settings" class="hidden"></div>
       <div id="tab-updates" class="hidden"></div>
     </div>
@@ -51,6 +57,6 @@
   <div id="updateOverlayRoot"></div>
   <div id="toastRoot"></div>
 
-  <script src="/static/js/admin.js?v=1.4.3"></script>
+  <script src="/static/js/admin.js?v=1.5.0"></script>
 </body>
 </html>

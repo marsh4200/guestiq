@@ -1,6 +1,14 @@
 /* ============================ GuestIQ admin ============================ */
 let TOKEN = localStorage.getItem('giq_token') || '';
 let ROOMS = [];
+let ME = null;          // signed-in user: role + permissions
+
+function can(perm) {
+  if (!ME) return false;
+  if (ME.is_admin) return true;
+  return (ME.permissions || []).indexOf(perm) !== -1;
+}
+function isAdmin() { return !!(ME && ME.is_admin); }
 
 function esc(s) {
   return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => (
@@ -39,6 +47,11 @@ async function api(path, opts = {}) {
   if (TOKEN) opts.headers['X-Auth-Token'] = TOKEN;
   const r = await fetch(path, opts);
   if (r.status === 401) { logoutLocal(); throw new Error('unauthorized'); }
+  if (r.status === 403) {
+    let m = "Your account doesn't have permission for that";
+    try { m = (await r.json()).detail || m; } catch (e) {}
+    throw new Error(m);
+  }
   if (!r.ok) {
     let msg = 'Request failed';
     try { msg = (await r.json()).detail || msg; } catch (e) {}
@@ -50,22 +63,28 @@ async function api(path, opts = {}) {
 
 /* ------------------------------ auth ------------------------------ */
 async function doLogin() {
+  const username = (document.getElementById('loginUser').value || '').trim();
   const pw = document.getElementById('loginPw').value;
   const err = document.getElementById('loginErr');
   err.textContent = '';
   try {
     const r = await fetch('/api/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw }),
+      body: JSON.stringify({ username: username || 'admin', password: pw }),
     });
-    if (!r.ok) throw new Error('Wrong password');
+    if (!r.ok) {
+      let m = 'Wrong username or password';
+      try { m = (await r.json()).detail || m; } catch (e2) {}
+      throw new Error(m);
+    }
     const d = await r.json();
     TOKEN = d.token; localStorage.setItem('giq_token', TOKEN);
     showApp();
   } catch (e) { err.textContent = e.message; }
 }
 function logoutLocal() {
-  TOKEN = ''; localStorage.removeItem('giq_token');
+  TOKEN = ''; ME = null; localStorage.removeItem('giq_token');
+  clearInterval(_checkinTimer);
   document.getElementById('app').classList.add('hidden');
   document.getElementById('loginScreen').classList.remove('hidden');
 }
@@ -86,15 +105,17 @@ const ICONS = {
 };
 const NAV = [
   { id: 'checkins', label: 'Check-ins' },
-  { id: 'rooms', label: 'Rooms' },
+  { id: 'rooms', label: 'Rooms', show: () => can('rooms') || can('rooms_delete') },
   { id: 'guests', label: 'Guests' },
-  { id: 'qr', label: 'QR Codes' },
-  { id: 'automation', label: 'Automation' },
-  { id: 'settings', label: 'Settings' },
-  { id: 'updates', label: 'Updates' },
+  { id: 'qr', label: 'QR Codes', show: () => can('qr') },
+  { id: 'staff', label: 'Staff', show: () => isAdmin() },
+  { id: 'automation', label: 'Automation', show: () => can('automation') },
+  { id: 'settings', label: 'Settings', show: () => can('settings') || isAdmin() },
+  { id: 'updates', label: 'Updates', show: () => can('updates') },
 ];
+function visibleNav() { return NAV.filter(n => !n.show || n.show()); }
 function renderNav() {
-  document.getElementById('tabs').innerHTML = NAV.map(n => `
+  document.getElementById('tabs').innerHTML = visibleNav().map(n => `
     <button class="nav-item" data-tab="${n.id}" onclick="switchTab('${n.id}')">
       ${ICONS[n.id] || ''}<span>${n.label}</span>
       <span class="nav-badge hidden" id="navBadge-${n.id}"></span>
@@ -109,12 +130,18 @@ function setNavBadge(tab, count) {
 
 /* ------------------------------ shell ------------------------------ */
 async function showApp() {
+  try { ME = await api('/api/me'); }
+  catch (e) { logoutLocal(); return; }
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
+  const who = document.getElementById('whoBadge');
+  if (who) who.innerHTML = `${esc(ME.display_name || ME.username)}
+    <span class="who-role ${ME.is_admin ? 'admin' : ''}">${ME.is_admin ? 'Admin' : 'Staff'}</span>`;
+  document.getElementById('updateBtn').classList.toggle('hidden', !can('updates'));
   renderNav();
   await loadVersion();
   switchTab('checkins');
-  checkUpdatesQuietly();
+  if (can('updates')) checkUpdatesQuietly();
 }
 
 async function loadVersion() {
@@ -126,6 +153,7 @@ async function loadVersion() {
 
 const TABS = NAV.map(n => n.id);
 function switchTab(name) {
+  if (!visibleNav().some(n => n.id === name)) name = 'checkins';
   TABS.forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
   });
@@ -133,7 +161,7 @@ function switchTab(name) {
     b.classList.toggle('active', b.dataset.tab === name));
   const fn = { checkins: renderCheckins, rooms: renderRooms, guests: renderGuests,
     qr: renderQR, automation: renderAutomation, settings: renderSettings,
-    updates: renderUpdates }[name];
+    updates: renderUpdates, staff: renderStaff }[name];
   if (fn) fn();
 }
 
@@ -623,15 +651,15 @@ async function renderRooms() {
       <td><span class="pill ${r.status}">${r.status}</span>
         ${r.occupant ? '<br><span class="muted" style="font-size:11px;">'+esc(r.occupant.full_name)+'</span>' : ''}</td>
       <td class="row end">
-        <button class="btn ghost sm" onclick="showRoomQR('${r.room_code}','${esc(r.room_number)}')">QR</button>
-        <button class="btn ghost sm" onclick="editRoom(${r.id})">Edit</button>
-        <button class="btn ghost sm" onclick="delRoom(${r.id})">✕</button>
+        ${can('qr') ? `<button class="btn ghost sm" onclick="showRoomQR('${r.room_code}','${esc(r.room_number)}')">QR</button>` : ''}
+        ${can('rooms') ? `<button class="btn ghost sm" onclick="editRoom(${r.id})">Edit</button>` : ''}
+        ${can('rooms_delete') ? `<button class="btn ghost sm" onclick="delRoom(${r.id})">✕</button>` : ''}
       </td>
     </tr>`).join('') : `<tr><td colspan="5" class="empty">No rooms yet — add one</td></tr>`;
 
   el.innerHTML = `<div class="card">
       <div class="row"><h2 style="flex:1;margin:0;">Rooms · ${ROOMS.length}</h2>
-        <button class="btn sm" onclick="editRoom(null)">+ Add room</button></div>
+        ${can('rooms') ? '<button class="btn sm" onclick="editRoom(null)">+ Add room</button>' : ''}</div>
       <table style="margin-top:12px;"><thead><tr><th>Room</th><th>Floor</th>
         <th>Wi-Fi SSID</th><th>Status</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table>
@@ -715,12 +743,13 @@ async function renderGuests(q) {
       <td>${esc(g.id_number || '—')}</td>
       <td class="row end">
         <button class="btn ghost sm" onclick="editGuest(${g.id})">Edit</button>
-        <button class="btn ghost sm" onclick="delGuest(${g.id})">✕</button>
+        ${can('guests_delete') ? `<button class="btn ghost sm" onclick="delGuest(${g.id})">✕</button>` : ''}
       </td>
     </tr>`).join('') : `<tr><td colspan="5" class="empty">No guests found</td></tr>`;
 
   el.innerHTML = `<div class="card">
       <div class="row"><h2 style="flex:1;margin:0;">Guest records · ${guests.length}</h2>
+        <button class="btn sm" onclick="addGuest()">+ Add customer</button>
         <input id="gSearch" placeholder="Search name / phone / ID…" style="max-width:260px;"
           oninput="clearTimeout(window._gs);window._gs=setTimeout(()=>renderGuests(this.value),300)"
           value="${esc(q||'')}"></div>
@@ -731,6 +760,41 @@ async function renderGuests(q) {
     </div>`;
   window._guests = guests;
 }
+function addGuest() {
+  openModal(`
+    <label>Full name *</label><input id="agName">
+    <div class="grid cols-2">
+      <div><label>Phone</label><input id="agPhone"></div>
+      <div><label>Email</label><input id="agEmail"></div>
+    </div>
+    <label>ID / Passport</label><input id="agId">
+    <label>Address</label><textarea id="agAddr"></textarea>
+    <label>Vehicle reg</label><input id="agVeh">
+    <label>Notes</label><textarea id="agNotes"></textarea>
+    <div class="row end" style="margin-top:16px;">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn green" onclick="submitAddGuest()">Save customer</button>
+    </div>`, { title: 'Add customer', icon: '👤', iconClass: 'green' });
+}
+async function submitAddGuest() {
+  const body = {
+    full_name: document.getElementById('agName').value.trim(),
+    phone: document.getElementById('agPhone').value.trim(),
+    email: document.getElementById('agEmail').value.trim(),
+    id_number: document.getElementById('agId').value.trim(),
+    address: document.getElementById('agAddr').value.trim(),
+    vehicle_reg: document.getElementById('agVeh').value.trim(),
+    notes: document.getElementById('agNotes').value.trim(),
+  };
+  if (!body.full_name) { toast('Name required'); return; }
+  try {
+    const r = await api('/api/guests', { method: 'POST', body: JSON.stringify(body) });
+    closeModal();
+    toast(r.created ? 'Customer added' : 'Matched an existing customer — record updated');
+    renderGuests();
+  } catch (e) { toast(e.message); }
+}
+
 function editGuest(id) {
   const g = (window._guests || []).find(x => x.id === id) || {};
   openModal(`
@@ -845,12 +909,15 @@ async function renderSettings() {
         <div class="row end" style="margin-top:18px;">
           <button class="btn" onclick="saveSettings()">Save settings</button>
         </div>
+        ${isAdmin() ? `
         <hr style="border:none;border-top:1px solid var(--border);margin:22px 0;">
-        <h2>Change admin password</h2>
+        <h2>Change my password</h2>
         <label>New password</label><input id="sNewPw" type="password">
         <div class="row end" style="margin-top:12px;">
           <button class="btn ghost" onclick="changePw()">Update password</button>
         </div>
+        <p class="muted" style="font-size:12px;">Staff passwords are set from the
+          <b>Staff</b> tab. Staff cannot change any password themselves.</p>` : ''}
       </div>
       <div class="card">
         <h2>Overdue checkout alerts</h2>
@@ -934,6 +1001,201 @@ async function changePw() {
   await api('/api/settings/password', { method: 'POST', body: JSON.stringify({ new_password: pw }) });
   document.getElementById('sNewPw').value = '';
   toast('Password updated');
+}
+
+
+/* ============================ STAFF TAB ============================ */
+let _staffData = { users: [], catalogue: [], base_capabilities: [] };
+
+async function renderStaff() {
+  const el = document.getElementById('tab-staff');
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  try { _staffData = await api('/api/users'); }
+  catch (e) { el.innerHTML = `<div class="card"><p class="muted">${esc(e.message)}</p></div>`; return; }
+
+  const rows = _staffData.users.map(u => `
+    <tr class="${u.active ? '' : 'row-off'}">
+      <td><b>${esc(u.display_name || u.username)}</b>
+        <br><span class="muted" style="font-size:12px;">${esc(u.username)}</span></td>
+      <td><span class="pill ${u.is_admin ? 'occupied' : 'checked_in'}">${u.is_admin ? 'Admin' : 'Staff'}</span>
+        ${u.active ? '' : '<br><span class="pill cancelled" style="margin-top:4px;">disabled</span>'}</td>
+      <td>${u.is_admin
+            ? '<span class="muted">Everything</span>'
+            : (u.permissions.length
+                ? u.permissions.map(p => `<span class="perm-chip">${esc(permLabel(p))}</span>`).join('')
+                : '<span class="muted">Reception only</span>')}</td>
+      <td class="muted" style="font-size:12px;">${esc(fmtTs(u.last_login, 'Never'))}</td>
+      <td class="row end">
+        <button class="btn ghost sm" onclick="editStaff(${u.id})">Permissions</button>
+        <button class="btn ghost sm" onclick="staffPassword(${u.id})">Password</button>
+        <button class="btn ghost sm" onclick="delStaff(${u.id})">✕</button>
+      </td>
+    </tr>`).join('');
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="row"><h2 style="flex:1;margin:0;">Accounts · ${_staffData.users.length}</h2>
+        <button class="btn sm" onclick="addStaff()">+ Add staff member</button></div>
+      <table style="margin-top:12px;"><thead><tr><th>Name</th><th>Role</th>
+        <th>Extra permissions</th><th>Last sign-in</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2>What staff can always do</h2>
+      <ul class="cap-list">
+        ${_staffData.base_capabilities.map(c => `<li>${esc(c)}</li>`).join('')}
+      </ul>
+      <p class="muted" style="font-size:13px;margin-bottom:0;">
+        Everything else — rooms, QR codes, settings, automation, updates,
+        deleting records and <b>any password change</b> — stays off until you
+        tick it for that person. Administrators always have everything.</p>
+    </div>`;
+}
+
+function permLabel(key) {
+  const p = (_staffData.catalogue || []).find(x => x.key === key);
+  return p ? p.label : key;
+}
+
+function permCheckboxes(selected, disabled) {
+  const groups = {};
+  (_staffData.catalogue || []).forEach(p => {
+    (groups[p.group] = groups[p.group] || []).push(p);
+  });
+  return Object.keys(groups).map(g => `
+    <div class="perm-group">
+      <div class="perm-group-title">${esc(g)}</div>
+      ${groups[g].map(p => `
+        <label class="perm-row">
+          <input type="checkbox" class="permBox" value="${esc(p.key)}"
+            ${selected.indexOf(p.key) !== -1 ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+          <span>${esc(p.label)}</span>
+        </label>`).join('')}
+    </div>`).join('');
+}
+function pickedPerms() {
+  return Array.from(document.querySelectorAll('.permBox'))
+    .filter(b => b.checked).map(b => b.value);
+}
+
+function addStaff() {
+  openModal(`
+    <div class="grid cols-2">
+      <div><label>Username *</label><input id="suUser" autocomplete="off"></div>
+      <div><label>Display name</label><input id="suName"></div>
+    </div>
+    <label>Password *</label><input id="suPw" type="password" autocomplete="new-password">
+    <label>Role</label>
+    <select id="suRole" onchange="toggleRoleBoxes()">
+      <option value="staff">Staff — reception only</option>
+      <option value="admin">Administrator — full access</option>
+    </select>
+    <div id="suPerms">
+      <label style="margin-top:14px;">Extra permissions</label>
+      <div class="perm-box">${permCheckboxes([], false)}</div>
+    </div>
+    <div class="row end" style="margin-top:16px;">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn green" onclick="submitStaff()">Create account</button>
+    </div>`, { title: 'Add staff member', icon: '👥', iconClass: 'green' });
+}
+function toggleRoleBoxes() {
+  const admin = document.getElementById('suRole').value === 'admin';
+  document.getElementById('suPerms').classList.toggle('hidden', admin);
+}
+async function submitStaff() {
+  const body = {
+    username: document.getElementById('suUser').value.trim(),
+    display_name: document.getElementById('suName').value.trim(),
+    password: document.getElementById('suPw').value,
+    role: document.getElementById('suRole').value,
+    permissions: pickedPerms(),
+  };
+  if (!body.username) { toast('Username required'); return; }
+  if ((body.password || '').length < 4) { toast('Password must be at least 4 characters'); return; }
+  try {
+    await api('/api/users', { method: 'POST', body: JSON.stringify(body) });
+    closeModal(); toast('Account created'); renderStaff();
+  } catch (e) { toast(e.message); }
+}
+
+function editStaff(id) {
+  const u = _staffData.users.find(x => x.id === id);
+  if (!u) return;
+  openModal(`
+    <div class="sumbox">
+      <div class="sumrow"><span class="k">Account</span><span class="v">${esc(u.username)}</span></div>
+    </div>
+    <label>Display name</label><input id="euName" value="${esc(u.display_name || '')}">
+    <label>Role</label>
+    <select id="euRole" onchange="document.getElementById('euPerms').classList.toggle('hidden', this.value==='admin')">
+      <option value="staff" ${u.is_admin ? '' : 'selected'}>Staff — reception only</option>
+      <option value="admin" ${u.is_admin ? 'selected' : ''}>Administrator — full access</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;">
+      <input type="checkbox" id="euActive" style="width:auto;" ${u.active ? 'checked' : ''}>
+      Account enabled
+    </label>
+    <div id="euPerms" class="${u.is_admin ? 'hidden' : ''}">
+      <label style="margin-top:14px;">Extra permissions</label>
+      <div class="perm-box">${permCheckboxes(u.permissions || [], false)}</div>
+    </div>
+    <div class="row end" style="margin-top:16px;">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="submitEditStaff(${id})">Save</button>
+    </div>`, { title: esc(u.display_name || u.username), icon: '🔑', iconClass: 'blue' });
+}
+async function submitEditStaff(id) {
+  const body = {
+    display_name: document.getElementById('euName').value.trim(),
+    role: document.getElementById('euRole').value,
+    active: document.getElementById('euActive').checked,
+    permissions: pickedPerms(),
+  };
+  try {
+    await api('/api/users/' + id, { method: 'PUT', body: JSON.stringify(body) });
+    closeModal(); toast('Account updated'); renderStaff();
+    if (ME && ME.id === id) { ME = await api('/api/me'); renderNav(); }
+  } catch (e) { toast(e.message); }
+}
+
+function staffPassword(id) {
+  const u = _staffData.users.find(x => x.id === id) || {};
+  openModal(`
+    <p style="margin:4px 0 10px;font-size:14px;">Set a new password for
+      <b>${esc(u.display_name || u.username)}</b>. They'll be signed out and
+      must use the new one.</p>
+    <label>New password</label><input id="spPw" type="password" autocomplete="new-password">
+    <div class="row end" style="margin-top:16px;">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="submitStaffPassword(${id})">Set password</button>
+    </div>`, { title: 'Set password', icon: '🔒', iconClass: 'amber' });
+}
+async function submitStaffPassword(id) {
+  const pw = document.getElementById('spPw').value;
+  if (pw.length < 4) { toast('Password must be at least 4 characters'); return; }
+  try {
+    await api(`/api/users/${id}/password`, { method: 'POST',
+      body: JSON.stringify({ new_password: pw }) });
+    closeModal(); toast('Password updated');
+  } catch (e) { toast(e.message); }
+}
+
+function delStaff(id) {
+  const u = _staffData.users.find(x => x.id === id) || {};
+  confirmModal({
+    title: 'Delete account',
+    icon: '🗑', iconClass: 'red',
+    message: `Delete the account for <b>${esc(u.display_name || u.username)}</b>?
+      Guest records they created are not affected.`,
+    okText: 'Delete', okClass: 'red',
+    onOk: async () => {
+      try {
+        await api('/api/users/' + id, { method: 'DELETE' });
+        closeModal(); toast('Account deleted'); renderStaff();
+      } catch (e) { toast(e.message); closeModal(); }
+    },
+  });
 }
 
 /* ============================ UPDATES TAB ============================ */
@@ -1196,7 +1458,7 @@ function upClose() {
 /* ============================== boot ============================== */
 (async function boot() {
   if (TOKEN) {
-    try { await api('/api/version'); showApp(); }
+    try { await api('/api/me'); showApp(); }
     catch (e) { logoutLocal(); }
   }
 })();

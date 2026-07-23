@@ -21,6 +21,7 @@ from .qr import make_qr_png
 from . import updater
 from . import ha_sync
 from . import notifications as notif
+from . import auth
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND = os.path.join(ROOT, "frontend")
@@ -45,35 +46,40 @@ def _now():
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
-def require_admin(
-    authorization: Optional[str] = Header(None),
-    x_auth_token: Optional[str] = Header(None),
-):
-    token = x_auth_token
-    if not token and authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:]
-    if not db.session_valid(token):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    return token
-
-
 class LoginIn(BaseModel):
     password: str
+    username: Optional[str] = None
 
 
 @app.post("/api/login")
 def login(body: LoginIn):
+    username = (body.username or "admin").strip().lower()
     with db.get_db() as conn:
-        row = conn.execute("SELECT admin_password FROM settings WHERE id = 1").fetchone()
-    if not row or not db.verify_password(body.password, row["admin_password"]):
-        raise HTTPException(status_code=401, detail="Wrong password")
-    return {"token": db.create_session()}
+        row = conn.execute(
+            "SELECT * FROM users WHERE lower(username) = ?", (username,)
+        ).fetchone()
+    if not row or not db.verify_password(body.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="Wrong username or password")
+    if not row["active"]:
+        raise HTTPException(status_code=403, detail="This account has been disabled")
+    with db.get_db() as conn:
+        conn.execute("UPDATE users SET last_login = ? WHERE id = ?",
+                     (db.now_local(), row["id"]))
+    return {"token": db.create_session(row["id"]), "user": auth.public_user(dict(row))}
 
 
 @app.post("/api/logout")
-def logout(token: str = Depends(require_admin)):
-    db.destroy_session(token)
+def logout(user: dict = Depends(auth.require_user)):
+    db.destroy_session(user["_token"])
     return {"ok": True}
+
+
+@app.get("/api/me")
+def whoami(user: dict = Depends(auth.require_user)):
+    """Who is signed in and what they're allowed to do — drives the whole UI."""
+    return {**auth.public_user(user),
+            "catalogue": auth.PERMISSIONS,
+            "base_capabilities": auth.BASE_CAPABILITIES}
 
 
 # ---------------------------------------------------------------------------
@@ -147,14 +153,20 @@ def _settings_row():
 
 
 @app.get("/api/settings")
-def get_settings(token: str = Depends(require_admin)):
+def get_settings(user: dict = Depends(auth.require_user)):
+    """Readable by any signed-in user (the console needs hotel name, checkout
+    time etc.), but the Home Assistant URL and token are stripped unless the
+    account is allowed to manage automation."""
     s = _settings_row()
     s.pop("admin_password", None)
+    if "automation" not in auth.perms_of(user):
+        for k in AUTOMATION_FIELDS:
+            s.pop(k, None)
     return s
 
 
 @app.put("/api/settings")
-def update_settings(body: SettingsIn, token: str = Depends(require_admin)):
+def update_settings(body: SettingsIn, user: dict = Depends(auth.require_perm("settings"))):
     fields = {k: (int(v) if isinstance(v, bool) else v)
               for k, v in body.dict().items() if v is not None}
     for f in URL_FIELDS:
@@ -168,14 +180,16 @@ def update_settings(body: SettingsIn, token: str = Depends(require_admin)):
                 (*fields.values(), db.now_local()),
             )
         db.tz_offset_minutes(force=True)  # drop the cached offset
-    return get_settings(token)
+    return get_settings(user)
 
 
 @app.post("/api/settings/password")
-def change_password(body: PasswordIn, token: str = Depends(require_admin)):
+def change_password(body: PasswordIn, user: dict = Depends(auth.require_admin_role)):
     if len(body.new_password) < 4:
         raise HTTPException(status_code=400, detail="Password too short")
     with db.get_db() as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                     (db.hash_password(body.new_password), user["id"]))
         conn.execute(
             "UPDATE settings SET admin_password = ?, updated_at = ? WHERE id = 1",
             (db.hash_password(body.new_password), _now()),
@@ -202,7 +216,7 @@ class RoomIn(BaseModel):
 
 
 @app.get("/api/rooms")
-def list_rooms(token: str = Depends(require_admin)):
+def list_rooms(user: dict = Depends(auth.require_user)):
     with db.get_db() as conn:
         rooms = [dict(r) for r in conn.execute("SELECT * FROM rooms ORDER BY room_number").fetchall()]
         # attach current occupant
@@ -219,7 +233,7 @@ def list_rooms(token: str = Depends(require_admin)):
 
 
 @app.get("/api/rooms/availability")
-def room_availability(token: str = Depends(require_admin)):
+def room_availability(user: dict = Depends(auth.require_user)):
     """Used by the check-in dialogs to refuse politely when the lodge is full."""
     with db.get_db() as conn:
         total = conn.execute("SELECT COUNT(*) c FROM rooms").fetchone()["c"]
@@ -232,7 +246,7 @@ def room_availability(token: str = Depends(require_admin)):
 
 
 @app.post("/api/rooms")
-def create_room(body: RoomIn, token: str = Depends(require_admin)):
+def create_room(body: RoomIn, user: dict = Depends(auth.require_perm("rooms"))):
     base = _slugify(f"{body.room_number}-{body.room_name}" if body.room_name else body.room_number)
     with db.get_db() as conn:
         code, n = base, 1
@@ -251,7 +265,7 @@ def create_room(body: RoomIn, token: str = Depends(require_admin)):
 
 
 @app.put("/api/rooms/{room_id}")
-def update_room(room_id: int, body: RoomIn, token: str = Depends(require_admin)):
+def update_room(room_id: int, body: RoomIn, user: dict = Depends(auth.require_perm("rooms"))):
     with db.get_db() as conn:
         if not conn.execute("SELECT 1 FROM rooms WHERE id = ?", (room_id,)).fetchone():
             raise HTTPException(404, "Room not found")
@@ -265,7 +279,7 @@ def update_room(room_id: int, body: RoomIn, token: str = Depends(require_admin))
 
 
 @app.delete("/api/rooms/{room_id}")
-def delete_room(room_id: int, token: str = Depends(require_admin)):
+def delete_room(room_id: int, user: dict = Depends(auth.require_perm("rooms_delete"))):
     with db.get_db() as conn:
         conn.execute("DELETE FROM rooms WHERE id = ?", (room_id,))
     return {"ok": True}
@@ -365,7 +379,7 @@ GUEST_SELECT = """
 
 @app.get("/api/guests")
 def list_guests(q: Optional[str] = None, limit: Optional[int] = None,
-                token: str = Depends(require_admin)):
+                user: dict = Depends(auth.require_user)):
     sql = GUEST_SELECT
     params: tuple = ()
     if q:
@@ -381,8 +395,27 @@ def list_guests(q: Optional[str] = None, limit: Optional[int] = None,
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
+class GuestCreateIn(GuestIn):
+    pass
+
+
+@app.post("/api/guests")
+def create_guest(body: GuestCreateIn, user: dict = Depends(auth.require_user)):
+    """Add a customer to the address book. Core staff capability."""
+    if not body.full_name.strip():
+        raise HTTPException(400, "Name is required")
+    with db.get_db() as conn:
+        gid, is_new = _find_or_create_guest(
+            conn, CheckinIn(**{k: v for k, v in body.dict().items() if k != "notes"}))
+        if body.notes:
+            conn.execute("UPDATE guests SET notes = ? WHERE id = ?", (body.notes, gid))
+        row = dict(conn.execute("SELECT * FROM guests WHERE id = ?", (gid,)).fetchone())
+    row["created"] = is_new
+    return row
+
+
 @app.put("/api/guests/{guest_id}")
-def update_guest(guest_id: int, body: GuestIn, token: str = Depends(require_admin)):
+def update_guest(guest_id: int, body: GuestIn, user: dict = Depends(auth.require_user)):
     with db.get_db() as conn:
         conn.execute(
             """UPDATE guests SET full_name=?, email=?, phone=?, id_number=?,
@@ -394,7 +427,7 @@ def update_guest(guest_id: int, body: GuestIn, token: str = Depends(require_admi
 
 
 @app.delete("/api/guests/{guest_id}")
-def delete_guest(guest_id: int, token: str = Depends(require_admin)):
+def delete_guest(guest_id: int, user: dict = Depends(auth.require_perm("guests_delete"))):
     with db.get_db() as conn:
         conn.execute("DELETE FROM guests WHERE id = ?", (guest_id,))
     return {"ok": True}
@@ -454,7 +487,7 @@ def _stay_row(conn, sid):
 
 @app.get("/api/stays")
 def list_stays(status: Optional[str] = None, limit: Optional[int] = None,
-               token: str = Depends(require_admin)):
+               user: dict = Depends(auth.require_user)):
     q = """SELECT s.*, g.full_name, g.email, g.phone, g.id_number,
                   r.room_number, r.room_name
            FROM stays s JOIN guests g ON g.id = s.guest_id
@@ -474,13 +507,13 @@ def list_stays(status: Optional[str] = None, limit: Optional[int] = None,
 
 
 @app.get("/api/stays/overdue")
-def list_overdue(token: str = Depends(require_admin)):
+def list_overdue(user: dict = Depends(auth.require_user)):
     """Guests who should already have checked out."""
     return notif.overdue_stays()
 
 
 @app.post("/api/stays/{stay_id}/assign")
-def assign_room(stay_id: int, body: AssignIn, token: str = Depends(require_admin)):
+def assign_room(stay_id: int, body: AssignIn, user: dict = Depends(auth.require_user)):
     with db.get_db() as conn:
         st = conn.execute("SELECT * FROM stays WHERE id = ?", (stay_id,)).fetchone()
         if not st:
@@ -498,7 +531,7 @@ def assign_room(stay_id: int, body: AssignIn, token: str = Depends(require_admin
 
 
 @app.post("/api/stays")
-def manual_stay(body: ManualStayIn, token: str = Depends(require_admin)):
+def manual_stay(body: ManualStayIn, user: dict = Depends(auth.require_user)):
     with db.get_db() as conn:
         _room_or_409(conn, body.room_id)
         g = body.guest
@@ -520,7 +553,7 @@ def manual_stay(body: ManualStayIn, token: str = Depends(require_admin)):
 
 
 @app.post("/api/stays/{stay_id}/checkout")
-def checkout_stay(stay_id: int, token: str = Depends(require_admin)):
+def checkout_stay(stay_id: int, user: dict = Depends(auth.require_user)):
     now = db.now_local()
     with db.get_db() as conn:
         st = conn.execute("SELECT * FROM stays WHERE id = ?", (stay_id,)).fetchone()
@@ -551,7 +584,7 @@ class ExtendIn(BaseModel):
 
 
 @app.post("/api/stays/{stay_id}/extend")
-def extend_stay(stay_id: int, body: ExtendIn, token: str = Depends(require_admin)):
+def extend_stay(stay_id: int, body: ExtendIn, user: dict = Depends(auth.require_user)):
     """Push the due-out time out — used straight from an overdue alert."""
     with db.get_db() as conn:
         if not conn.execute("SELECT 1 FROM stays WHERE id = ?", (stay_id,)).fetchone():
@@ -569,31 +602,149 @@ def extend_stay(stay_id: int, body: ExtendIn, token: str = Depends(require_admin
 # Alerts
 # ---------------------------------------------------------------------------
 @app.get("/api/alerts")
-def get_alerts(include_acked: bool = False, token: str = Depends(require_admin)):
+def get_alerts(include_acked: bool = False, user: dict = Depends(auth.require_user)):
     return notif.list_alerts(include_acked=include_acked)
 
 
 @app.post("/api/alerts/{alert_id}/ack")
-def ack_alert(alert_id: int, token: str = Depends(require_admin)):
+def ack_alert(alert_id: int, user: dict = Depends(auth.require_user)):
     notif.ack_alert(alert_id)
     return {"ok": True}
 
 
 @app.post("/api/alerts/ack-all")
-def ack_all_alerts(token: str = Depends(require_admin)):
+def ack_all_alerts(user: dict = Depends(auth.require_user)):
     return {"ok": True, "cleared": notif.ack_all()}
 
 
 @app.post("/api/alerts/scan")
-def scan_alerts(token: str = Depends(require_admin)):
+def scan_alerts(user: dict = Depends(auth.require_user)):
     """Run the overdue sweep on demand (the watcher also does this every 60s)."""
     return notif.scan(force=True)
 
 
 @app.post("/api/stays/{stay_id}/cancel")
-def cancel_stay(stay_id: int, token: str = Depends(require_admin)):
+def cancel_stay(stay_id: int, user: dict = Depends(auth.require_user)):
     with db.get_db() as conn:
         conn.execute("UPDATE stays SET status='cancelled' WHERE id=?", (stay_id,))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Staff accounts (admin only)
+# ---------------------------------------------------------------------------
+class UserIn(BaseModel):
+    username: str
+    display_name: Optional[str] = ""
+    password: Optional[str] = None
+    role: Optional[str] = "staff"
+    permissions: Optional[list] = None
+    active: Optional[bool] = True
+
+
+class UserUpdateIn(BaseModel):
+    display_name: Optional[str] = None
+    role: Optional[str] = None
+    permissions: Optional[list] = None
+    active: Optional[bool] = None
+
+
+class UserPasswordIn(BaseModel):
+    new_password: str
+
+
+def _admin_count(conn) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) c FROM users WHERE role = 'admin' AND active = 1"
+    ).fetchone()["c"]
+
+
+@app.get("/api/users")
+def list_users(user: dict = Depends(auth.require_admin_role)):
+    with db.get_db() as conn:
+        rows = conn.execute("SELECT * FROM users ORDER BY role, username").fetchall()
+    return {"users": [auth.public_user(dict(r)) for r in rows],
+            "catalogue": auth.PERMISSIONS,
+            "base_capabilities": auth.BASE_CAPABILITIES}
+
+
+@app.post("/api/users")
+def create_user(body: UserIn, user: dict = Depends(auth.require_admin_role)):
+    uname = (body.username or "").strip().lower()
+    if not uname:
+        raise HTTPException(400, "Username is required")
+    if not body.password or len(body.password) < 4:
+        raise HTTPException(400, "Password must be at least 4 characters")
+    role = "admin" if body.role == "admin" else "staff"
+    with db.get_db() as conn:
+        if conn.execute("SELECT 1 FROM users WHERE lower(username) = ?", (uname,)).fetchone():
+            raise HTTPException(409, f"'{uname}' already exists")
+        cur = conn.execute(
+            """INSERT INTO users (username, display_name, password_hash, role,
+                 permissions, active, created_at) VALUES (?,?,?,?,?,?,?)""",
+            (uname, (body.display_name or "").strip(), db.hash_password(body.password),
+             role, auth.clean_perms(body.permissions),
+             1 if body.active is None else int(bool(body.active)), db.now_local()),
+        )
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return auth.public_user(dict(row))
+
+
+@app.put("/api/users/{user_id}")
+def update_user(user_id: int, body: UserUpdateIn, user: dict = Depends(auth.require_admin_role)):
+    with db.get_db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "User not found")
+        role = row["role"] if body.role is None else ("admin" if body.role == "admin" else "staff")
+        active = row["active"] if body.active is None else int(bool(body.active))
+        # never lock yourself out of the console
+        if row["role"] == "admin" and (role != "admin" or not active) and _admin_count(conn) <= 1:
+            raise HTTPException(400, "This is the only administrator — "
+                                     "promote someone else first")
+        if row["id"] == user["id"] and not active:
+            raise HTTPException(400, "You can't disable your own account")
+        conn.execute(
+            """UPDATE users SET display_name=?, role=?, permissions=?, active=? WHERE id=?""",
+            (row["display_name"] if body.display_name is None else body.display_name.strip(),
+             role,
+             row["permissions"] if body.permissions is None else auth.clean_perms(body.permissions),
+             active, user_id),
+        )
+        out = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not active:
+        db.drop_sessions_for_user(user_id)
+    return auth.public_user(dict(out))
+
+
+@app.post("/api/users/{user_id}/password")
+def set_user_password(user_id: int, body: UserPasswordIn,
+                      user: dict = Depends(auth.require_admin_role)):
+    """Only an administrator can set any password — including their own."""
+    if len(body.new_password) < 4:
+        raise HTTPException(400, "Password must be at least 4 characters")
+    with db.get_db() as conn:
+        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+            raise HTTPException(404, "User not found")
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                     (db.hash_password(body.new_password), user_id))
+    if user_id != user["id"]:
+        db.drop_sessions_for_user(user_id)   # force them to sign in again
+    return {"ok": True}
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int, user: dict = Depends(auth.require_admin_role)):
+    if user_id == user["id"]:
+        raise HTTPException(400, "You can't delete your own account")
+    with db.get_db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "User not found")
+        if row["role"] == "admin" and _admin_count(conn) <= 1:
+            raise HTTPException(400, "This is the only administrator")
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.drop_sessions_for_user(user_id)
     return {"ok": True}
 
 
@@ -693,13 +844,13 @@ AUTOMATION_FIELDS = (
 
 
 @app.get("/api/automation")
-def get_automation(token: str = Depends(require_admin)):
+def get_automation(user: dict = Depends(auth.require_perm("automation"))):
     s = _settings_row()
     return {k: s.get(k) for k in AUTOMATION_FIELDS}
 
 
 @app.put("/api/automation")
-def update_automation(body: AutomationIn, token: str = Depends(require_admin)):
+def update_automation(body: AutomationIn, user: dict = Depends(auth.require_perm("automation"))):
     fields = {}
     for k in AUTOMATION_FIELDS:
         v = getattr(body, k)
@@ -712,17 +863,17 @@ def update_automation(body: AutomationIn, token: str = Depends(require_admin)):
                 f"UPDATE settings SET {sets}, updated_at = ? WHERE id = 1",
                 (*fields.values(), _now()),
             )
-    return get_automation(token)
+    return get_automation(user)
 
 
 @app.post("/api/automation/test")
-def test_automation(token: str = Depends(require_admin)):
+def test_automation(user: dict = Depends(auth.require_perm("automation"))):
     ok, msg = ha_sync.test_connection()
     return {"ok": ok, "message": msg}
 
 
 @app.post("/api/automation/sync")
-def sync_automation(token: str = Depends(require_admin)):
+def sync_automation(user: dict = Depends(auth.require_perm("automation"))):
     ok, msg = ha_sync.full_sync()
     return {"ok": ok, "message": "Synced all rooms to Home Assistant" if ok else msg}
 
@@ -770,17 +921,17 @@ def version():
 
 
 @app.get("/api/update/check")
-def update_check(token: str = Depends(require_admin)):
+def update_check(user: dict = Depends(auth.require_perm("updates"))):
     return updater.check_updates()
 
 
 @app.post("/api/update/apply")
-def update_apply(token: str = Depends(require_admin)):
+def update_apply(user: dict = Depends(auth.require_perm("updates"))):
     return updater.request_update()
 
 
 @app.get("/api/update/status")
-def update_status(token: str = Depends(require_admin)):
+def update_status(user: dict = Depends(auth.require_perm("updates"))):
     return updater.update_status()
 
 

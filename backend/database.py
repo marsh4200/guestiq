@@ -173,6 +173,18 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    display_name TEXT DEFAULT '',
+    password_hash TEXT NOT NULL,
+    role TEXT DEFAULT 'staff',        -- admin | staff
+    permissions TEXT DEFAULT '[]',    -- JSON list of extra grants (staff only)
+    active INTEGER DEFAULT 1,
+    created_at TEXT,
+    last_login TEXT
+);
+
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,              -- overdue_checkout
@@ -209,6 +221,8 @@ MIGRATIONS = [
     "ALTER TABLE settings ADD COLUMN room_lock_grace_minutes INTEGER DEFAULT 0",
     "ALTER TABLE settings ADD COLUMN room_lock_message TEXT DEFAULT "
     "'Your stay has ended. Please contact reception if you need anything.'",
+    # --- v1.5.0: staff accounts ---
+    "ALTER TABLE sessions ADD COLUMN user_id INTEGER",
 ]
 
 
@@ -228,23 +242,60 @@ def init_db():
                 "INSERT INTO settings (id, admin_password, updated_at) VALUES (1, ?, ?)",
                 (hash_password(default_pw), _now()),
             )
+        _seed_admin_user(conn)
+
+
+def _seed_admin_user(conn):
+    """First run under v1.5.0: turn the single admin password into an
+    'admin' account. Any pre-existing session is dropped so everyone signs
+    in again against the new accounts table."""
+    if conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+        return
+    row = conn.execute("SELECT admin_password FROM settings WHERE id = 1").fetchone()
+    pw_hash = row["admin_password"] if row and row["admin_password"] else \
+        hash_password(os.environ.get("ADMIN_PASSWORD", "admin"))
+    conn.execute(
+        """INSERT INTO users (username, display_name, password_hash, role,
+             permissions, active, created_at)
+           VALUES ('admin', 'Administrator', ?, 'admin', '[]', 1, ?)""",
+        (pw_hash, _now()),
+    )
+    conn.execute("DELETE FROM sessions")
 
 
 # ---------------------------------------------------------------------------
 # Session helpers
 # ---------------------------------------------------------------------------
-def create_session() -> str:
+def create_session(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     with get_db() as conn:
-        conn.execute("INSERT INTO sessions (token, created_at) VALUES (?, ?)", (token, _now()))
+        conn.execute(
+            "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+            (token, user_id, now_local()),
+        )
     return token
 
 
-def session_valid(token: str) -> bool:
+def session_user(token: str):
+    """Resolve a session token to its (active) user row, or None."""
     if not token:
-        return False
+        return None
     with get_db() as conn:
-        return conn.execute("SELECT 1 FROM sessions WHERE token = ?", (token,)).fetchone() is not None
+        row = conn.execute(
+            """SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+               WHERE s.token = ? AND u.active = 1""",
+            (token,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def session_valid(token: str) -> bool:
+    return session_user(token) is not None
+
+
+def drop_sessions_for_user(user_id: int):
+    with get_db() as conn:
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
 
 
 def destroy_session(token: str):

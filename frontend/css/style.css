@@ -377,3 +377,30 @@ tr.row-overdue:hover td { background: rgba(239,68,68,.10); }
 .picker-or::before, .picker-or::after {
   content: ''; flex: 1; height: 1px; background: var(--border-soft);
 }
+
+/* ================== v1.5.0 — staff accounts & permissions ================== */
+.who { display: inline-flex; align-items: center; gap: 7px; font-size: 13px;
+  color: var(--muted); font-weight: 600; }
+.who-role { font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .5px; padding: 2px 7px; border-radius: 999px;
+  background: rgba(34,197,94,.15); color: var(--green); }
+.who-role.admin { background: rgba(59,130,246,.18); color: var(--accent); }
+
+tr.row-off td { opacity: .55; }
+
+.perm-chip { display: inline-block; font-size: 11px; padding: 3px 8px; margin: 2px 3px 2px 0;
+  border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--muted); }
+
+.perm-box { background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 6px 12px 12px; margin-top: 4px; }
+.perm-group { padding-top: 8px; }
+.perm-group + .perm-group { border-top: 1px solid var(--border-soft); margin-top: 6px; }
+.perm-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); font-weight: 700; margin-bottom: 4px; }
+.perm-row { display: flex; align-items: center; gap: 9px; font-size: 13.5px;
+  color: var(--text); margin: 0; padding: 5px 0; cursor: pointer; }
+.perm-row input { width: auto; margin: 0; }
+
+.cap-list { margin: 0 0 12px; padding-left: 18px; color: var(--text); font-size: 13.5px; }
+.cap-list li { padding: 3px 0; }
