@@ -320,10 +320,32 @@ function defaultCheckout() {
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function openAssign(stayId) {
-  if (!ROOMS.some(r => r.status === 'available')) {
-    toast('No available rooms — add or free one up first');
-  }
+function noRoomsModal() {
+  const total = ROOMS.length;
+  const occupied = ROOMS.filter(r => r.status === 'occupied').length;
+  openModal(`
+    <p style="margin:4px 0 10px;font-size:14px;">
+      ${total
+        ? `Every room is currently occupied — <b>${occupied} of ${total}</b> rooms are in use.
+           Check a guest out (or extend nothing) before checking anyone else in.`
+        : `There are no rooms set up yet. Add a room before checking guests in.`}</p>
+    ${total ? `<div class="sumbox">
+      ${ROOMS.filter(r => r.status === 'occupied').slice(0, 8).map(r => `
+        <div class="sumrow"><span class="k">${esc(r.room_number)}</span>
+          <span class="v">${esc((r.occupant && r.occupant.full_name) || 'Occupied')}</span></div>`).join('')}
+      ${occupied > 8 ? `<div class="sumrow"><span class="k">…</span>
+        <span class="v muted">+ ${occupied - 8} more</span></div>` : ''}
+    </div>` : ''}
+    <div class="row end" style="margin-top:18px;">
+      <button class="btn ghost" onclick="closeModal()">Close</button>
+      <button class="btn" onclick="closeModal();switchTab('rooms')">${total ? 'Manage rooms' : 'Add a room'}</button>
+    </div>`, { title: total ? 'No rooms available' : 'No rooms set up',
+               icon: '⛔', iconClass: 'red' });
+}
+
+async function openAssign(stayId) {
+  try { ROOMS = await api('/api/rooms'); } catch (e) {}
+  if (!ROOMS.some(r => r.status === 'available')) { noRoomsModal(); return; }
   const s = (window._pending || []).find(x => x.id === stayId) || {};
   openModal(`
     ${s.full_name ? `<div class="sumbox"><div class="sumrow">
@@ -346,12 +368,14 @@ async function submitAssign(stayId) {
     await api(`/api/stays/${stayId}/assign`, { method: 'POST',
       body: JSON.stringify({ room_id, check_out_at: out }) });
     closeModal(); toast('Guest checked in'); renderCheckins();
-  } catch (e) { toast(e.message); }
+  } catch (e) { toast(e.message); renderCheckins(true); }
 }
 
 let _pickedGuest = null;
 
-function openManualStay() {
+async function openManualStay() {
+  try { ROOMS = await api('/api/rooms'); } catch (e) {}
+  if (!ROOMS.some(r => r.status === 'available')) { noRoomsModal(); return; }
   _pickedGuest = null;
   openModal(`
     <label>Existing contact</label>
@@ -464,7 +488,7 @@ async function submitManualStay() {
     closeModal(); toast(_pickedGuest ? 'Returning guest checked in' : 'Checked in');
     _pickedGuest = null;
     renderCheckins();
-  } catch (e) { toast(e.message); }
+  } catch (e) { toast(e.message); renderCheckins(true); }
 }
 
 /* checkout modal — full stay timeline (v1.4.0) */
@@ -815,6 +839,9 @@ async function renderSettings() {
         <label>Restaurant name</label><input id="sResName" ${f('',s.restaurant_name)}>
         <label>Restaurant phone</label><input id="sResPhone" ${f('',s.restaurant_phone)}>
         <label>Online menu URL</label><input id="sMenu" placeholder="https://…" ${f('',s.menu_url)}>
+        <p class="muted" style="font-size:12px;margin-top:4px;">
+          Opened by the &ldquo;View Menu&rdquo; button on the room QR page.
+          <b>https://</b> is added automatically if you leave it off.</p>
         <div class="row end" style="margin-top:18px;">
           <button class="btn" onclick="saveSettings()">Save settings</button>
         </div>

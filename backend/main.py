@@ -31,6 +31,7 @@ app = FastAPI(title="GuestIQ", version=updater.get_local_version())
 @app.on_event("startup")
 def _startup():
     db.init_db()
+    _fix_stored_urls()
     ha_sync.start_periodic()
     notif.start_watcher()
 
@@ -103,6 +104,43 @@ class PasswordIn(BaseModel):
     new_password: str
 
 
+URL_FIELDS = ("public_url", "menu_url")
+
+
+def _normalise_url(value: str) -> str:
+    """A URL without a scheme is resolved by the browser as a path RELATIVE to
+    the page it sits on — so 'lodge.co.za/menu' on /room/3-kudu became
+    /room/lodge.co.za/menu and the guest got "this code is invalid".
+    Anything that isn't a scheme, mailto: or tel: gets https:// put on it."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    low = v.lower()
+    if low.startswith(("http://", "https://", "mailto:", "tel:")):
+        return v
+    if v.startswith("/"):          # deliberate same-site path
+        return v
+    return "https://" + v.lstrip("/")
+
+
+def _fix_stored_urls():
+    """One-off repair for settings saved before v1.4.3."""
+    try:
+        with db.get_db() as conn:
+            row = conn.execute(
+                f"SELECT {', '.join(URL_FIELDS)} FROM settings WHERE id = 1"
+            ).fetchone()
+            if not row:
+                return
+            fixes = {f: _normalise_url(row[f]) for f in URL_FIELDS
+                     if row[f] and _normalise_url(row[f]) != row[f]}
+            if fixes:
+                sets = ", ".join(f"{k} = ?" for k in fixes)
+                conn.execute(f"UPDATE settings SET {sets} WHERE id = 1", tuple(fixes.values()))
+    except Exception:  # noqa: BLE001 - never block startup
+        pass
+
+
 def _settings_row():
     with db.get_db() as conn:
         return dict(conn.execute("SELECT * FROM settings WHERE id = 1").fetchone())
@@ -119,6 +157,9 @@ def get_settings(token: str = Depends(require_admin)):
 def update_settings(body: SettingsIn, token: str = Depends(require_admin)):
     fields = {k: (int(v) if isinstance(v, bool) else v)
               for k, v in body.dict().items() if v is not None}
+    for f in URL_FIELDS:
+        if f in fields:
+            fields[f] = _normalise_url(fields[f])
     if fields:
         sets = ", ".join(f"{k} = ?" for k in fields)
         with db.get_db() as conn:
@@ -175,6 +216,19 @@ def list_rooms(token: str = Depends(require_admin)):
             ).fetchone()
             r["occupant"] = dict(occ) if occ else None
     return rooms
+
+
+@app.get("/api/rooms/availability")
+def room_availability(token: str = Depends(require_admin)):
+    """Used by the check-in dialogs to refuse politely when the lodge is full."""
+    with db.get_db() as conn:
+        total = conn.execute("SELECT COUNT(*) c FROM rooms").fetchone()["c"]
+        occupied = conn.execute(
+            """SELECT COUNT(DISTINCT room_id) c FROM stays
+               WHERE status = 'checked_in' AND room_id IS NOT NULL"""
+        ).fetchone()["c"]
+    return {"total": total, "occupied": occupied,
+            "available": max(0, total - occupied), "full": total > 0 and occupied >= total}
 
 
 @app.post("/api/rooms")
@@ -364,6 +418,29 @@ class ManualStayIn(BaseModel):
     num_guests: Optional[int] = 1
 
 
+def _room_or_409(conn, room_id: int):
+    """Reject a check-in into a room that already has someone in it."""
+    room = conn.execute("SELECT * FROM rooms WHERE id = ?", (room_id,)).fetchone()
+    if not room:
+        raise HTTPException(404, "Room not found")
+    occ = conn.execute(
+        """SELECT g.full_name FROM stays s JOIN guests g ON g.id = s.guest_id
+           WHERE s.room_id = ? AND s.status = 'checked_in'
+           ORDER BY s.id DESC LIMIT 1""",
+        (room_id,),
+    ).fetchone()
+    if occ:
+        label = room["room_number"]
+        if room["room_name"]:
+            label += f" · {room['room_name']}"
+        raise HTTPException(
+            409,
+            f"Room {label} is already occupied by {occ['full_name']} — "
+            f"check them out first, or pick another room",
+        )
+    return room
+
+
 def _stay_row(conn, sid):
     return conn.execute(
         """SELECT s.*, g.full_name, g.email, g.phone, g.id_number,
@@ -408,8 +485,7 @@ def assign_room(stay_id: int, body: AssignIn, token: str = Depends(require_admin
         st = conn.execute("SELECT * FROM stays WHERE id = ?", (stay_id,)).fetchone()
         if not st:
             raise HTTPException(404, "Stay not found")
-        if not conn.execute("SELECT 1 FROM rooms WHERE id = ?", (body.room_id,)).fetchone():
-            raise HTTPException(404, "Room not found")
+        _room_or_409(conn, body.room_id)
         conn.execute(
             """UPDATE stays SET room_id=?, check_in_at=?, check_out_at=?,
                  status='checked_in' WHERE id=?""",
@@ -424,6 +500,7 @@ def assign_room(stay_id: int, body: AssignIn, token: str = Depends(require_admin
 @app.post("/api/stays")
 def manual_stay(body: ManualStayIn, token: str = Depends(require_admin)):
     with db.get_db() as conn:
+        _room_or_409(conn, body.room_id)
         g = body.guest
         gid, _ = _find_or_create_guest(
             conn, CheckinIn(**{k: v for k, v in g.dict().items() if k != "notes"}),

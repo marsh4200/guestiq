@@ -3,6 +3,16 @@ function esc(s) {
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+/* a link without a scheme resolves relative to /room/<code> and lands the
+   guest on "this code is invalid" — always give it one */
+function safeUrl(u) {
+  const v = (u || '').trim();
+  if (!v) return '';
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(v)) return v;
+  if (v.startsWith('/')) return v;
+  return 'https://' + v.replace(/^\/+/, '');
+}
+
 function infoRow(icon, label, value, opts = {}) {
   if (!value) return '';
   const mono = opts.mono ? ' mono' : '';
@@ -92,7 +102,7 @@ function render(d) {
   if (dine || h.menu_url) {
     html += `<div class="g-card"><h3 style="margin:0 0 4px;">Dining</h3>${dine}
       ${h.menu_url ? `<div class="g-actions" style="margin-top:12px;">
-        <a href="${esc(h.menu_url)}" target="_blank" rel="noopener">&#128220; View Menu</a>
+        <a href="${esc(safeUrl(h.menu_url))}" target="_blank" rel="noopener">&#128220; View Menu</a>
         ${h.restaurant_phone ? `<a class="alt" href="tel:${esc(h.restaurant_phone)}">&#128222; Call</a>` : ''}
       </div>` : ''}</div>`;
   }
