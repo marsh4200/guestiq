@@ -1011,6 +1011,66 @@ def qr_room(code: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Printable room sheets — for guests who can't (or won't) scan a QR code
+# ---------------------------------------------------------------------------
+def _print_hotel_block(s: dict) -> dict:
+    return {
+        "hotel_name": s["hotel_name"],
+        "address": s["address"],
+        "reception_phone": s["reception_phone"],
+        "restaurant_name": s["restaurant_name"],
+        "restaurant_phone": s["restaurant_phone"],
+        "menu_url": s["menu_url"],
+        "emergency_number": s["emergency_number"],
+        "checkout_time": s["checkout_time"],
+        "welcome_message": s["welcome_message"],
+        "logo_url": _logo_url(s),
+        "public_url": (s.get("public_url") or "").rstrip("/"),
+    }
+
+
+def _print_room_block(request: Request, room) -> dict:
+    base = _base_url(request)
+    return {
+        "room_number": room["room_number"],
+        "room_name": room["room_name"],
+        "floor": room["floor"],
+        "room_code": room["room_code"],
+        "wifi_ssid": room["wifi_ssid"],
+        "wifi_password": room["wifi_password"],
+        "description": room["description"],
+        "qr_png": f"/api/qr/room/{room['room_code']}.png",
+        "url": f"{base}/room/{room['room_code']}",
+    }
+
+
+@app.get("/api/print/rooms")
+def print_all_rooms(request: Request, user: dict = Depends(auth.require_perm("qr"))):
+    """Everything needed to print a room sheet, regardless of occupancy."""
+    with db.get_db() as conn:
+        rooms = conn.execute("SELECT * FROM rooms ORDER BY room_number").fetchall()
+        s = dict(conn.execute("SELECT * FROM settings WHERE id = 1").fetchone())
+    return {"hotel": _print_hotel_block(s),
+            "rooms": [_print_room_block(request, r) for r in rooms],
+            "checkin_url": f"{_base_url(request)}/checkin",
+            "checkin_qr": "/api/qr/checkin.png"}
+
+
+@app.get("/api/print/room/{code}")
+def print_one_room(code: str, request: Request,
+                   user: dict = Depends(auth.require_perm("qr"))):
+    with db.get_db() as conn:
+        room = conn.execute("SELECT * FROM rooms WHERE room_code = ?", (code,)).fetchone()
+        if not room:
+            raise HTTPException(404, "Room not found")
+        s = dict(conn.execute("SELECT * FROM settings WHERE id = 1").fetchone())
+    return {"hotel": _print_hotel_block(s),
+            "rooms": [_print_room_block(request, room)],
+            "checkin_url": f"{_base_url(request)}/checkin",
+            "checkin_qr": "/api/qr/checkin.png"}
+
+
+# ---------------------------------------------------------------------------
 # Version + updater
 # ---------------------------------------------------------------------------
 @app.get("/api/version")
@@ -1060,6 +1120,15 @@ def checkin_page():
 @app.get("/room/{code}")
 def room_page(code: str):
     return FileResponse(os.path.join(FRONTEND, "room.html"))
+
+
+@app.get("/print/rooms")
+@app.get("/print/checkin")
+@app.get("/print/room/{code}")
+def print_page(code: Optional[str] = None):
+    """Print-ready sheets. The page itself pulls its data with the admin
+    session token from localStorage, so it can't be read by a guest."""
+    return FileResponse(os.path.join(FRONTEND, "print.html"))
 
 
 # static assets (css/js)

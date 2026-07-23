@@ -22,7 +22,7 @@ PERMISSIONS = [
     {"key": "rooms",         "group": "Rooms",    "label": "Add & edit rooms"},
     {"key": "rooms_delete",  "group": "Rooms",    "label": "Delete rooms"},
     {"key": "guests_delete", "group": "Guests",   "label": "Delete guest records"},
-    {"key": "qr",            "group": "QR codes", "label": "View & print QR codes"},
+    {"key": "qr",            "group": "QR codes", "label": "View & print QR codes and room sheets"},
     {"key": "settings",      "group": "System",   "label": "Change hotel settings"},
     {"key": "automation",    "group": "System",   "label": "Automation & smart control"},
     {"key": "updates",       "group": "System",   "label": "Check & apply updates"},

@@ -28,6 +28,8 @@ function humanMins(m) {
   if (mm || !p.length) p.push(mm + 'm');
   return p.join(' ');
 }
+function openPrint(path) { window.open(path, '_blank', 'noopener'); }
+
 function nowLocalInput(plusHours) {
   const d = new Date();
   if (plusHours) d.setHours(d.getHours() + plusHours);
@@ -724,11 +726,13 @@ function showRoomQR(code, num) {
       <img src="/api/qr/room/${encodeURIComponent(code)}.png" alt="QR">
       <div class="url">${esc(url)}</div>
     </div>
-    <p class="muted" style="font-size:13px;">Print this and place it in the room. Scanning shows
-      Wi-Fi, restaurant, menu and contacts.</p>
+    <p class="muted" style="font-size:13px;">Print the sheet and place it in the room —
+      it carries the QR code plus the Wi-Fi and contact details in plain text for
+      guests who can't scan.</p>
     <div class="row end">
-      <a class="btn ghost" href="/api/qr/room/${encodeURIComponent(code)}.png" download="room-${esc(num)}-qr.png">Download PNG</a>
-      <button class="btn" onclick="closeModal()">Close</button>
+      <a class="btn ghost" href="/api/qr/room/${encodeURIComponent(code)}.png" download="room-${esc(num)}-qr.png">PNG</a>
+      <button class="btn" onclick="openPrint('/print/room/${encodeURIComponent(code)}')">Print sheet</button>
+      <button class="btn ghost" onclick="closeModal()">Close</button>
     </div>`, { title: `Room ${esc(num)} — guest QR`, icon: '▦', iconClass: 'blue' });
 }
 
@@ -852,8 +856,9 @@ async function renderQR() {
       <h3>${esc(r.room_number)}${r.room_name ? ' · ' + esc(r.room_name) : ''}</h3>
       <img src="/api/qr/room/${encodeURIComponent(r.room_code)}.png">
       <div class="row end" style="justify-content:center;margin-top:10px;">
+        <button class="btn sm" onclick="openPrint('/print/room/${encodeURIComponent(r.room_code)}')">Print sheet</button>
         <a class="btn ghost sm" href="/api/qr/room/${encodeURIComponent(r.room_code)}.png"
-           download="room-${esc(r.room_number)}-qr.png">Download</a>
+           download="room-${esc(r.room_number)}-qr.png">PNG</a>
       </div>
     </div>`).join('');
 
@@ -866,14 +871,27 @@ async function renderQR() {
         <img src="/api/qr/checkin.png">
         <div class="url">${location.origin}/checkin</div>
         <div class="row end" style="justify-content:center;margin-top:10px;">
-          <a class="btn ghost sm" href="/api/qr/checkin.png" download="checkin-qr.png">Download</a>
+          <button class="btn sm" onclick="openPrint('/print/checkin')">Print sheet</button>
+          <a class="btn ghost sm" href="/api/qr/checkin.png" download="checkin-qr.png">PNG</a>
         </div>
       </div>
       <div class="card">
-        <h2>Tip</h2>
-        <p class="muted" style="font-size:14px;">If your public URL differs from this device's
-          address, set it under <b>Settings → Public URL</b> so QR links point to the right domain
-          (e.g. your Cloudflare tunnel).</p>
+        <h2>Printing</h2>
+        <p class="muted" style="font-size:14px;margin-top:0;">
+          A room sheet prints the QR code <b>and</b> the same details in plain
+          text — Wi-Fi network and password, check-out time, reception,
+          restaurant and emergency numbers — so a guest who can't scan still
+          has everything on paper.</p>
+        <div class="row" style="margin-top:12px;">
+          <button class="btn" onclick="openPrint('/print/rooms')">Print all room sheets</button>
+        </div>
+        <p class="muted" style="font-size:12.5px;margin-bottom:0;">
+          One A4 page per room. Tick the QR code, printed details and Wi-Fi
+          password on or off before printing.</p>
+        <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
+        <p class="muted" style="font-size:13px;margin:0;">If your public URL differs from this
+          device's address, set it under <b>Settings → Public URL</b> so QR links point to the
+          right domain (e.g. your Cloudflare tunnel).</p>
       </div>
     </div>
     <h2 class="muted" style="margin:26px 0 12px;">Per-room QR codes</h2>

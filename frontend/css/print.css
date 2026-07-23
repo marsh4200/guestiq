@@ -1,0 +1,100 @@
+/* ==================== GuestIQ printable sheets ====================
+   Dark-free by design: this page exists to come out of a printer.       */
+:root {
+  --ink: #10192b;
+  --soft: #5b6880;
+  --line: #d9e1ef;
+  --brand: #2563eb;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #eef2f9; color: var(--ink); }
+
+/* ---------------- toolbar (screen only) ---------------- */
+.toolbar {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center;
+  gap: 16px; flex-wrap: wrap; padding: 12px 20px; background: #fff;
+  border-bottom: 1px solid var(--line); box-shadow: 0 2px 10px rgba(20,40,80,.06);
+}
+.tb-title { font-weight: 700; font-size: 15px; }
+.tb-spacer { flex: 1; }
+.tb-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+  color: var(--soft); cursor: pointer; }
+.tb-btn { border: none; background: var(--brand); color: #fff; font-weight: 600;
+  font-size: 14px; padding: 9px 18px; border-radius: 9px; cursor: pointer;
+  font-family: inherit; }
+.tb-btn:hover { background: #1d4ed8; }
+.tb-btn.ghost { background: transparent; color: var(--soft); border: 1px solid var(--line); }
+
+/* ---------------- sheet ---------------- */
+.sheet {
+  background: #fff; width: 210mm; min-height: 297mm; margin: 22px auto;
+  padding: 18mm 16mm; box-shadow: 0 10px 34px rgba(20,40,80,.14);
+  display: flex; flex-direction: column;
+}
+.sh-head { display: flex; align-items: center; gap: 16px;
+  border-bottom: 2px solid var(--line); padding-bottom: 14px; }
+.sh-logo { width: 74px; height: 74px; flex: 0 0 auto; border-radius: 16px;
+  background: var(--brand); color: #fff; display: flex; align-items: center;
+  justify-content: center; font-weight: 800; font-size: 26px; overflow: hidden; }
+.sh-logo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.sh-name h1 { margin: 0; font-size: 27px; letter-spacing: -.3px; }
+.sh-name p { margin: 3px 0 0; color: var(--soft); font-size: 14px; }
+
+.sh-title { display: flex; align-items: baseline; gap: 12px; margin: 22px 0 6px; }
+.sh-title h2 { margin: 0; font-size: 40px; letter-spacing: -1px; }
+.sh-floor { color: var(--soft); font-size: 15px; }
+.sh-welcome { margin: 4px 0 0; color: var(--soft); font-size: 15px; line-height: 1.5; }
+
+.sh-body { display: flex; gap: 26px; margin-top: 26px; align-items: flex-start; }
+.sh-body.single { justify-content: center; }
+
+.sh-qr { flex: 0 0 auto; text-align: center; width: 74mm; }
+.sh-qr img { width: 68mm; height: 68mm; display: block; margin: 0 auto; }
+.sh-qr-cap { font-size: 13.5px; font-weight: 600; margin-top: 6px; }
+.sh-qr-url { font-size: 10.5px; color: var(--soft); word-break: break-all; margin-top: 3px; }
+
+.sh-info { flex: 1; min-width: 0; }
+.sh-info.wide { margin-top: 26px; }
+.sh-row { display: flex; align-items: baseline; gap: 12px; padding: 9px 0;
+  border-bottom: 1px solid var(--line); }
+.sh-row:last-child { border-bottom: none; }
+.sh-k { flex: 0 0 40mm; color: var(--soft); font-size: 12.5px;
+  text-transform: uppercase; letter-spacing: .4px; }
+.sh-v { flex: 1; font-size: 15px; font-weight: 600; word-break: break-word; }
+.sh-v.big { font-size: 20px; letter-spacing: .3px; }
+
+.sh-note { margin-top: 18px; padding: 12px 14px; background: #f5f8fd;
+  border: 1px solid var(--line); border-radius: 10px; }
+.sh-note b { font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--soft); }
+.sh-note p { margin: 5px 0 0; font-size: 14px; line-height: 1.5; }
+
+.sh-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line);
+  color: var(--soft); font-size: 12px; text-align: center; }
+
+.fail { padding: 40px; text-align: center; color: var(--soft); font-size: 15px; }
+
+/* ---------------- print ---------------- */
+@page { size: A4 portrait; margin: 12mm; }
+
+@media print {
+  body { background: #fff; }
+  .toolbar { display: none !important; }
+  .sheet {
+    width: auto; min-height: auto; margin: 0; padding: 0;
+    box-shadow: none; page-break-after: always; break-after: page;
+  }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
+  .sh-logo { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .sh-note { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+@media (max-width: 800px) {
+  .sheet { width: auto; min-height: auto; padding: 20px; margin: 12px; }
+  .sh-body { flex-direction: column; align-items: center; }
+  .sh-qr { width: auto; }
+  .sh-qr img { width: 62vw; height: 62vw; max-width: 300px; max-height: 300px; }
+  .sh-info { width: 100%; }
+  .sh-k { flex-basis: 34vw; }
+}

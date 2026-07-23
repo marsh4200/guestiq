@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Print — GuestIQ</title>
+  <link rel="stylesheet" href="/static/css/print.css?v=1.7.0">
+</head>
+<body>
+  <div class="toolbar" id="toolbar">
+    <div class="tb-title" id="tbTitle">Preparing…</div>
+    <label class="tb-opt"><input type="checkbox" id="optQr" checked> QR code</label>
+    <label class="tb-opt"><input type="checkbox" id="optInfo" checked> Printed details</label>
+    <label class="tb-opt"><input type="checkbox" id="optWifi" checked> Wi-Fi password</label>
+    <div class="tb-spacer"></div>
+    <button class="tb-btn ghost" onclick="window.close()">Close</button>
+    <button class="tb-btn" onclick="window.print()">Print</button>
+  </div>
+
+  <div id="sheets"></div>
+
+  <script src="/static/js/print.js?v=1.7.0"></script>
+</body>
+</html>
