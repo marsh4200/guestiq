@@ -226,6 +226,10 @@ MIGRATIONS = [
     # --- v1.6.0: property logo ---
     "ALTER TABLE settings ADD COLUMN logo_file TEXT DEFAULT ''",
     "ALTER TABLE settings ADD COLUMN logo_updated TEXT DEFAULT ''",
+    # --- v1.8.0: backups ---
+    "ALTER TABLE settings ADD COLUMN auto_backup_enabled INTEGER DEFAULT 1",
+    "ALTER TABLE settings ADD COLUMN auto_backup_keep INTEGER DEFAULT 7",
+    "ALTER TABLE settings ADD COLUMN last_backup_at TEXT DEFAULT ''",
 ]
 
 

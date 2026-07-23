@@ -22,6 +22,7 @@ from . import updater
 from . import ha_sync
 from . import notifications as notif
 from . import auth
+from . import backup as bak
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND = os.path.join(ROOT, "frontend")
@@ -35,6 +36,7 @@ def _startup():
     _fix_stored_urls()
     ha_sync.start_periodic()
     notif.start_watcher()
+    bak.start_scheduler()
 
 
 def _now():
@@ -104,6 +106,9 @@ class SettingsIn(BaseModel):
     room_lock_on_checkout: Optional[bool] = None
     room_lock_grace_minutes: Optional[int] = None
     room_lock_message: Optional[str] = None
+    # v1.8.0
+    auto_backup_enabled: Optional[bool] = None
+    auto_backup_keep: Optional[int] = None
 
 
 class PasswordIn(BaseModel):
@@ -1008,6 +1013,94 @@ def qr_room(code: str, request: Request):
             raise HTTPException(404, "Room not found")
     url = f"{_base_url(request)}/room/{code}"
     return StreamingResponse(io.BytesIO(make_qr_png(url)), media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# Backup & restore (administrators only — a backup holds guest details
+# and password hashes)
+# ---------------------------------------------------------------------------
+@app.get("/api/backup/download")
+def backup_download(user: dict = Depends(auth.require_admin_role)):
+    data = bak.export_bytes()
+    stamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M")
+    name = f"guestiq-backup-{stamp}.zip"
+    return StreamingResponse(
+        io.BytesIO(data), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@app.get("/api/backup/list")
+def backup_list(user: dict = Depends(auth.require_admin_role)):
+    s = _settings_row()
+    return {"backups": bak.list_backups(),
+            "auto_backup_enabled": bool(s.get("auto_backup_enabled")),
+            "auto_backup_keep": s.get("auto_backup_keep") or 7,
+            "last_backup_at": s.get("last_backup_at") or ""}
+
+
+@app.post("/api/backup/create")
+def backup_create(user: dict = Depends(auth.require_admin_role)):
+    name = bak.save_to_disk(prefix="manual")
+    return {"ok": True, "name": name}
+
+
+@app.get("/api/backup/file/{name}")
+def backup_file(name: str, user: dict = Depends(auth.require_admin_role)):
+    try:
+        data = bak.read_backup(name)
+    except ValueError as err:
+        raise HTTPException(404, str(err))
+    return StreamingResponse(
+        io.BytesIO(data), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{os.path.basename(name)}"'},
+    )
+
+
+@app.delete("/api/backup/file/{name}")
+def backup_delete(name: str, user: dict = Depends(auth.require_admin_role)):
+    try:
+        bak.delete_backup(name)
+    except ValueError as err:
+        raise HTTPException(404, str(err))
+    return {"ok": True}
+
+
+@app.post("/api/backup/restore/{name}")
+def backup_restore_saved(name: str, include_users: bool = True,
+                         user: dict = Depends(auth.require_admin_role)):
+    try:
+        data = bak.read_backup(name)
+    except ValueError as err:
+        raise HTTPException(404, str(err))
+    try:
+        return bak.restore_bytes(data, include_users=include_users)
+    except ValueError as err:
+        raise HTTPException(400, str(err))
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(500, f"Restore failed: {err}")
+
+
+@app.post("/api/backup/inspect")
+async def backup_inspect(file: UploadFile = File(...),
+                         user: dict = Depends(auth.require_admin_role)):
+    """What's in this file? Called before the restore is confirmed."""
+    try:
+        return bak.summarise(await file.read())
+    except ValueError as err:
+        raise HTTPException(400, str(err))
+
+
+@app.post("/api/backup/restore")
+async def backup_restore(file: UploadFile = File(...), include_users: bool = True,
+                         user: dict = Depends(auth.require_admin_role)):
+    data = await file.read()
+    try:
+        return bak.restore_bytes(data, include_users=include_users)
+    except ValueError as err:
+        raise HTTPException(400, str(err))
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(500, f"Restore failed: {err}")
 
 
 # ---------------------------------------------------------------------------

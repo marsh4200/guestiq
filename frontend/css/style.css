@@ -434,3 +434,11 @@ tr.row-off td { opacity: .55; }
 .logo-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .logo-thumb.empty { background: var(--panel-3); color: var(--muted);
   font-size: 11px; text-align: center; padding: 8px; }
+
+/* ============== v1.8.0 — backup & restore ============== */
+.restore-box {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin-top: 14px; padding: 14px; border-radius: 12px;
+  background: rgba(245,158,11,.07); border: 1px solid rgba(245,158,11,.3);
+}
+#backupList table { margin-top: 4px; }

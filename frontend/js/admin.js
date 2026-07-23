@@ -30,6 +30,33 @@ function humanMins(m) {
 }
 function openPrint(path) { window.open(path, '_blank', 'noopener'); }
 
+async function downloadAuth(url, fallbackName) {
+  try {
+    const r = await fetch(url, { headers: { 'X-Auth-Token': TOKEN } });
+    if (!r.ok) {
+      let m = 'Download failed';
+      try { m = (await r.json()).detail || m; } catch (e) {}
+      throw new Error(m);
+    }
+    let name = fallbackName;
+    const cd = r.headers.get('content-disposition') || '';
+    const m2 = cd.match(/filename="?([^";]+)"?/);
+    if (m2) name = m2[1];
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  } catch (e) { toast(e.message); }
+}
+function fmtSize(b) {
+  if (b == null) return '';
+  return b < 1024 ? b + ' B'
+    : b < 1024 * 1024 ? (b / 1024).toFixed(1) + ' KB'
+    : (b / 1048576).toFixed(1) + ' MB';
+}
+
 function nowLocalInput(plusHours) {
   const d = new Date();
   if (plusHours) d.setHours(d.getHours() + plusHours);
@@ -996,8 +1023,181 @@ async function renderSettings() {
           <button class="btn" onclick="saveSettings()">Save settings</button>
         </div>
       </div>
+      ${isAdmin() ? `
+      <div class="card" style="grid-column:1/-1;">
+        <h2>Backup & restore</h2>
+        <p class="muted" style="margin-top:0;font-size:13px;">
+          A backup holds <b>everything</b> — rooms, guests, stays and their
+          history, hotel settings, the logo, staff accounts and permissions.
+          It downloads as a single .zip you can keep off-site.</p>
+        <div class="row" style="margin-bottom:6px;">
+          <button class="btn" onclick="downloadAuth('/api/backup/download','guestiq-backup.zip')">
+            Download backup</button>
+          <button class="btn ghost" onclick="backupNow()">Save a copy on the server</button>
+          <div style="flex:1;"></div>
+          <label class="muted" style="margin:0;display:flex;align-items:center;gap:8px;font-size:13px;">
+            <input type="checkbox" id="sAutoBackup" style="width:auto;"
+              ${s.auto_backup_enabled ? 'checked' : ''}> Daily automatic backup
+          </label>
+          <input id="sBackupKeep" type="number" min="1" max="90" title="How many daily backups to keep"
+            value="${s.auto_backup_keep == null ? 7 : s.auto_backup_keep}"
+            style="width:70px;padding:7px 9px;">
+          <span class="muted" style="font-size:12.5px;">kept</span>
+        </div>
+        <div class="restore-box">
+          <div style="flex:1;min-width:220px;">
+            <b style="font-size:13px;">Restore from a backup file</b>
+            <p class="muted" style="font-size:12.5px;margin:4px 0 0;">
+              Replaces everything currently in GuestIQ. A safety copy of the
+              current data is saved on the server first.</p>
+          </div>
+          <input type="file" id="restoreFile" accept=".zip,application/zip"
+            style="max-width:280px;padding:7px;font-size:12.5px;" onchange="inspectRestore()">
+        </div>
+        <div id="backupList" class="muted" style="font-size:13px;margin-top:14px;">Loading saved copies…</div>
+      </div>` : ''}
     </div>`;
+  if (isAdmin()) loadBackups();
 }
+
+/* ------------------------- backup & restore ------------------------- */
+async function loadBackups() {
+  const el = document.getElementById('backupList');
+  if (!el) return;
+  let d;
+  try { d = await api('/api/backup/list'); }
+  catch (e) { el.textContent = e.message; return; }
+  const rows = d.backups.length ? d.backups.map(b => `
+    <tr>
+      <td><span class="pill ${b.kind === 'auto' ? 'checked_in' : b.kind === 'pre-restore' ? 'pending' : 'occupied'}">${esc(b.kind)}</span></td>
+      <td>${esc(fmtTs(b.created_at))}</td>
+      <td class="muted">${b.counts && b.counts.rooms != null
+          ? `${b.counts.rooms} rooms · ${b.counts.guests} guests · ${b.counts.stays} stays` : '—'}</td>
+      <td class="muted">${esc(fmtSize(b.size))}</td>
+      <td class="row end">
+        <button class="btn ghost sm" onclick="downloadAuth('/api/backup/file/${encodeURIComponent(b.name)}','${esc(b.name)}')">Download</button>
+        <button class="btn ghost sm" onclick="restoreSaved('${esc(b.name)}')">Restore</button>
+        <button class="btn ghost sm" onclick="deleteBackup('${esc(b.name)}')">✕</button>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="5" class="empty">No copies saved on the server yet</td></tr>`;
+  el.innerHTML = `
+    <div class="row" style="margin-bottom:6px;">
+      <b style="font-size:13px;color:var(--text);">Copies on the server</b>
+      <div style="flex:1;"></div>
+      <span class="muted" style="font-size:12.5px;">
+        ${d.last_backup_at ? 'Last backup ' + esc(fmtTs(d.last_backup_at)) : 'Never backed up'}</span>
+    </div>
+    <table><thead><tr><th>Type</th><th>Taken</th><th>Contents</th><th>Size</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+}
+
+async function backupNow() {
+  try {
+    const r = await api('/api/backup/create', { method: 'POST' });
+    toast('Backup saved: ' + r.name); loadBackups();
+  } catch (e) { toast(e.message); }
+}
+
+function deleteBackup(name) {
+  confirmModal({
+    title: 'Delete backup', icon: '🗑', iconClass: 'red',
+    message: `Delete <b>${esc(name)}</b> from the server? Any copy you already
+      downloaded is unaffected.`,
+    okText: 'Delete', okClass: 'red',
+    onOk: async () => {
+      try {
+        await api('/api/backup/file/' + encodeURIComponent(name), { method: 'DELETE' });
+        closeModal(); toast('Backup deleted'); loadBackups();
+      } catch (e) { toast(e.message); closeModal(); }
+    },
+  });
+}
+
+function restoreWarning(counts, source, onOk) {
+  const c = counts || {};
+  confirmModal({
+    title: 'Restore from backup', icon: '⚠', iconClass: 'red',
+    message: `This replaces <b>everything</b> currently in GuestIQ with the
+      contents of ${esc(source)}.`,
+    detailHtml: `
+      <div class="sumbox">
+        <div class="sumrow"><span class="k">Rooms</span><span class="v">${c.rooms != null ? c.rooms : '—'}</span></div>
+        <div class="sumrow"><span class="k">Guests</span><span class="v">${c.guests != null ? c.guests : '—'}</span></div>
+        <div class="sumrow"><span class="k">Stays</span><span class="v">${c.stays != null ? c.stays : '—'}</span></div>
+        <div class="sumrow"><span class="k">Accounts</span><span class="v">${c.users != null ? c.users : '—'}</span></div>
+      </div>
+      <label class="perm-row" style="margin-top:12px;">
+        <input type="checkbox" id="rsUsers" checked>
+        <span>Also restore staff accounts and passwords</span>
+      </label>
+      <p class="muted" style="font-size:12.5px;margin:8px 0 0;">
+        Everyone is signed out afterwards. A safety copy of the current data is
+        saved on the server first, so this can be undone.</p>`,
+    okText: 'Restore', okClass: 'red', onOk,
+  });
+}
+
+async function inspectRestore() {
+  const input = document.getElementById('restoreFile');
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const fd = new FormData(); fd.append('file', file);
+  let info;
+  try {
+    const r = await fetch('/api/backup/inspect', {
+      method: 'POST', headers: { 'X-Auth-Token': TOKEN }, body: fd });
+    if (!r.ok) {
+      let m = 'Could not read that file';
+      try { m = (await r.json()).detail || m; } catch (e) {}
+      throw new Error(m);
+    }
+    info = await r.json();
+  } catch (e) { toast(e.message); input.value = ''; return; }
+
+  restoreWarning(info.counts, `${file.name} (taken ${fmtTs(info.created_at)})`, async () => {
+    const withUsers = document.getElementById('rsUsers').checked;
+    const fd2 = new FormData(); fd2.append('file', file);
+    try {
+      const r = await fetch('/api/backup/restore?include_users=' + withUsers, {
+        method: 'POST', headers: { 'X-Auth-Token': TOKEN }, body: fd2 });
+      if (!r.ok) {
+        let m = 'Restore failed';
+        try { m = (await r.json()).detail || m; } catch (e) {}
+        throw new Error(m);
+      }
+      restoreDone(await r.json(), withUsers);
+    } catch (e) { toast(e.message); closeModal(); }
+  });
+}
+
+function restoreSaved(name) {
+  const b = null;
+  restoreWarning(null, name, async () => {
+    const withUsers = document.getElementById('rsUsers').checked;
+    try {
+      const r = await api(`/api/backup/restore/${encodeURIComponent(name)}?include_users=${withUsers}`,
+        { method: 'POST' });
+      restoreDone(r, withUsers);
+    } catch (e) { toast(e.message); closeModal(); }
+  });
+}
+
+function restoreDone(r, withUsers) {
+  const c = r.restored || {};
+  openModal(`
+    <div class="sumbox">
+      ${Object.keys(c).map(k => `<div class="sumrow"><span class="k">${esc(k)}</span>
+        <span class="v">${c[k]}</span></div>`).join('')}
+    </div>
+    <p class="muted" style="font-size:12.5px;margin-top:10px;">
+      Safety copy of the previous data: <b>${esc(r.safety_copy || '—')}</b><br>
+      ${withUsers ? 'Sign in again with the credentials from the backup.'
+                  : 'Staff accounts were left as they were — sign in again to continue.'}</p>
+    <div class="row end" style="margin-top:16px;">
+      <button class="btn green" onclick="location.reload()">Sign in again</button>
+    </div>`, { title: 'Restore complete', icon: '✓', iconClass: 'green' });
+}
+
 async function scanOverdueNow() {
   try {
     const r = await api('/api/alerts/scan', { method: 'POST' });
@@ -1061,6 +1261,10 @@ async function saveSettings() {
     room_lock_grace_minutes: parseInt(document.getElementById('sLockGrace').value || '0', 10),
     room_lock_message: document.getElementById('sLockMsg').value,
   };
+  if (document.getElementById('sAutoBackup')) {
+    body.auto_backup_enabled = document.getElementById('sAutoBackup').checked;
+    body.auto_backup_keep = parseInt(document.getElementById('sBackupKeep').value || '7', 10);
+  }
   await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
   toast('Settings saved');
 }
