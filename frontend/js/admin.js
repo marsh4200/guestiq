@@ -349,9 +349,21 @@ async function submitAssign(stayId) {
   } catch (e) { toast(e.message); }
 }
 
+let _pickedGuest = null;
+
 function openManualStay() {
+  _pickedGuest = null;
   openModal(`
-    <label>Full name *</label><input id="mName">
+    <label>Existing contact</label>
+    <div class="picker">
+      <input id="mSearch" autocomplete="off" placeholder="Search saved guests by name, phone or ID…"
+        oninput="searchContacts(this.value)" onfocus="searchContacts(this.value)"
+        onblur="setTimeout(hideContacts, 150)">
+      <div class="picker-list hidden" id="mResults"></div>
+    </div>
+    <div id="mPicked"></div>
+    <div class="picker-or"><span>or capture a new guest</span></div>
+    <label>Full name *</label><input id="mName" oninput="onManualNameTyped()">
     <div class="grid cols-2">
       <div><label>Phone</label><input id="mPhone"></div>
       <div><label>Email</label><input id="mEmail"></div>
@@ -366,7 +378,74 @@ function openManualStay() {
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn green" onclick="submitManualStay()">Check in</button>
     </div>`, { title: 'Manual check-in', icon: '✍️', iconClass: 'blue' });
+  searchContacts('');   // preload the most recent contacts
 }
+
+/* ---- existing-contact picker ---- */
+function hideContacts() {
+  const box = document.getElementById('mResults');
+  if (box) box.classList.add('hidden');
+}
+async function searchContacts(q) {
+  clearTimeout(window._cs);
+  window._cs = setTimeout(async () => {
+    const box = document.getElementById('mResults');
+    if (!box) return;
+    let list = [];
+    try {
+      list = await api('/api/guests?limit=8' + (q ? '&q=' + encodeURIComponent(q) : ''));
+    } catch (e) { return; }
+    window._pickList = list;
+    box.innerHTML = list.length ? list.map(g => `
+      <div class="picker-item" onmousedown="pickContact(${g.id})">
+        <div style="flex:1;min-width:0;">
+          <div class="pi-name">${esc(g.full_name)}
+            ${g.in_house ? '<span class="pill occupied" style="margin-left:6px;">in-house</span>' : ''}</div>
+          <div class="pi-sub">${esc([g.phone, g.email, g.id_number].filter(Boolean).join(' · ') || 'No contact details')}</div>
+        </div>
+        <div class="pi-meta">${g.visits ? g.visits + (g.visits > 1 ? ' stays' : ' stay') : 'New'}
+          ${g.last_stay ? '<br>' + esc(String(g.last_stay).slice(0, 10)) : ''}</div>
+      </div>`).join('')
+      : `<div class="picker-empty">No saved guest matches that</div>`;
+    box.classList.remove('hidden');
+  }, 200);
+}
+function pickContact(id) {
+  const g = (window._pickList || []).find(x => x.id === id);
+  if (!g) return;
+  _pickedGuest = g;
+  document.getElementById('mName').value = g.full_name || '';
+  document.getElementById('mPhone').value = g.phone || '';
+  document.getElementById('mEmail').value = g.email || '';
+  document.getElementById('mId').value = g.id_number || '';
+  document.getElementById('mSearch').value = '';
+  hideContacts();
+  document.getElementById('mPicked').innerHTML = `
+    <div class="picked-chip">
+      <div class="pc-ico">👤</div>
+      <div style="flex:1;min-width:0;">
+        <div class="pi-name">${esc(g.full_name)}</div>
+        <div class="pi-sub">${g.visits ? esc(g.visits + (g.visits > 1 ? ' previous stays' : ' previous stay')) : 'First stay'}
+          ${g.last_stay ? ' · last ' + esc(String(g.last_stay).slice(0, 10)) : ''}
+          ${g.vehicle_reg ? ' · ' + esc(g.vehicle_reg) : ''}</div>
+        ${g.in_house ? '<div class="pi-sub txt-red">Already checked in — check them out first</div>' : ''}
+      </div>
+      <button class="modal-x" onclick="clearContact()" title="Clear">✕</button>
+    </div>`;
+}
+function clearContact() {
+  _pickedGuest = null;
+  document.getElementById('mPicked').innerHTML = '';
+  ['mName', 'mPhone', 'mEmail', 'mId'].forEach(id => document.getElementById(id).value = '');
+}
+function onManualNameTyped() {
+  // typing over a picked contact detaches it, so a new record is created
+  if (_pickedGuest && document.getElementById('mName').value.trim() !== _pickedGuest.full_name) {
+    _pickedGuest = null;
+    document.getElementById('mPicked').innerHTML = '';
+  }
+}
+
 async function submitManualStay() {
   const name = document.getElementById('mName').value.trim();
   const room_id = parseInt(document.getElementById('mRoom').value, 10);
@@ -378,10 +457,13 @@ async function submitManualStay() {
       guest: { full_name: name, phone: document.getElementById('mPhone').value.trim(),
         email: document.getElementById('mEmail').value.trim(),
         id_number: document.getElementById('mId').value.trim() },
+      guest_id: _pickedGuest ? _pickedGuest.id : null,
       room_id, check_out_at: out,
       num_guests: parseInt(document.getElementById('mPax').value || '1', 10),
     })});
-    closeModal(); toast('Checked in'); renderCheckins();
+    closeModal(); toast(_pickedGuest ? 'Returning guest checked in' : 'Checked in');
+    _pickedGuest = null;
+    renderCheckins();
   } catch (e) { toast(e.message); }
 }
 

@@ -230,24 +230,36 @@ class CheckinIn(BaseModel):
     num_guests: Optional[int] = 1
 
 
-def _find_or_create_guest(conn, body: CheckinIn):
-    """Save guest for future: match on id_number, then email, then phone."""
+def _find_or_create_guest(conn, body: CheckinIn, guest_id: Optional[int] = None):
+    """Save guest for future: an explicitly picked guest_id wins, otherwise
+    match on id_number, then email, then phone.
+
+    Blank incoming fields never overwrite what is already on record — a
+    returning guest picked from the contact list keeps their address and
+    vehicle reg even though the quick check-in form doesn't ask for them.
+    """
     row = None
-    for field in ("id_number", "email", "phone"):
-        val = getattr(body, field)
-        if val:
-            row = conn.execute(
-                f"SELECT * FROM guests WHERE {field} = ? AND {field} != '' LIMIT 1", (val,)
-            ).fetchone()
-            if row:
-                break
+    if guest_id:
+        row = conn.execute("SELECT * FROM guests WHERE id = ?", (guest_id,)).fetchone()
+    if not row:
+        for field in ("id_number", "email", "phone"):
+            val = getattr(body, field)
+            if val:
+                row = conn.execute(
+                    f"SELECT * FROM guests WHERE {field} = ? AND {field} != '' LIMIT 1", (val,)
+                ).fetchone()
+                if row:
+                    break
     if row:
         gid = row["id"]
+        keep = lambda new, col: (new if (new or "").strip() else (row[col] or ""))  # noqa: E731
         conn.execute(
             """UPDATE guests SET full_name=?, email=?, phone=?, id_number=?,
                  address=?, vehicle_reg=?, updated_at=? WHERE id=?""",
-            (body.full_name, body.email, body.phone, body.id_number,
-             body.address, body.vehicle_reg, _now(), gid),
+            (keep(body.full_name, "full_name"), keep(body.email, "email"),
+             keep(body.phone, "phone"), keep(body.id_number, "id_number"),
+             keep(body.address, "address"), keep(body.vehicle_reg, "vehicle_reg"),
+             _now(), gid),
         )
         return gid, False
     cur = conn.execute(
@@ -286,19 +298,33 @@ class GuestIn(BaseModel):
     notes: Optional[str] = ""
 
 
+GUEST_SELECT = """
+    SELECT g.*,
+      (SELECT COUNT(*) FROM stays s WHERE s.guest_id = g.id
+         AND s.status IN ('checked_in','checked_out')) AS visits,
+      (SELECT MAX(IFNULL(s.checked_out_at, s.check_in_at)) FROM stays s
+         WHERE s.guest_id = g.id AND s.status IN ('checked_in','checked_out')) AS last_stay,
+      (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM stays s
+         WHERE s.guest_id = g.id AND s.status = 'checked_in') AS in_house
+    FROM guests g"""
+
+
 @app.get("/api/guests")
-def list_guests(q: Optional[str] = None, token: str = Depends(require_admin)):
+def list_guests(q: Optional[str] = None, limit: Optional[int] = None,
+                token: str = Depends(require_admin)):
+    sql = GUEST_SELECT
+    params: tuple = ()
+    if q:
+        like = f"%{q}%"
+        sql += """ WHERE g.full_name LIKE ? OR g.email LIKE ?
+                     OR g.phone LIKE ? OR g.id_number LIKE ?"""
+        params = (like, like, like, like)
+    sql += " ORDER BY g.updated_at DESC"
+    if limit:
+        sql += " LIMIT ?"
+        params = (*params, int(limit))
     with db.get_db() as conn:
-        if q:
-            like = f"%{q}%"
-            rows = conn.execute(
-                """SELECT * FROM guests WHERE full_name LIKE ? OR email LIKE ?
-                   OR phone LIKE ? OR id_number LIKE ? ORDER BY updated_at DESC""",
-                (like, like, like, like),
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM guests ORDER BY updated_at DESC").fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
 @app.put("/api/guests/{guest_id}")
@@ -331,6 +357,7 @@ class AssignIn(BaseModel):
 
 class ManualStayIn(BaseModel):
     guest: GuestIn
+    guest_id: Optional[int] = None   # picked from the existing-contacts list
     room_id: int
     check_in_at: Optional[str] = None
     check_out_at: str
@@ -398,7 +425,10 @@ def assign_room(stay_id: int, body: AssignIn, token: str = Depends(require_admin
 def manual_stay(body: ManualStayIn, token: str = Depends(require_admin)):
     with db.get_db() as conn:
         g = body.guest
-        gid, _ = _find_or_create_guest(conn, CheckinIn(**g.dict()))
+        gid, _ = _find_or_create_guest(
+            conn, CheckinIn(**{k: v for k, v in g.dict().items() if k != "notes"}),
+            guest_id=body.guest_id,
+        )
         cur = conn.execute(
             """INSERT INTO stays (guest_id, room_id, check_in_at, check_out_at,
                  num_guests, status, source, created_at)
