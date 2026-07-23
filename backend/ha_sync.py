@@ -106,7 +106,38 @@ def _send_occupancy(cfg: dict, room_label: str, occupied: bool) -> tuple[bool, s
     return _request(endpoint, {"room": room_label, "occupied": bool(occupied)}, None)
 
 
+def _send_message(cfg: dict, title: str, message: str, data: dict | None) -> tuple[bool, str]:
+    """Raise a persistent notification in HA (token mode), else post to the webhook.
+    Used for overdue-checkout alerts."""
+    base = _base_url(cfg)
+    token = _token(cfg)
+    if base and token:
+        return _request(
+            f"{base}/api/services/persistent_notification/create",
+            {"title": title, "message": message,
+             "notification_id": f"guestiq_{(data or {}).get('event','alert')}_"
+                                f"{(data or {}).get('stay_id','x')}"},
+            {"Authorization": f"Bearer {token}"},
+        )
+    endpoint = _endpoint(cfg)
+    if not endpoint:
+        return False, "Home Assistant is not configured"
+    payload = {"title": title, "message": message}
+    payload.update(data or {})
+    return _request(endpoint, payload, None)
+
+
 # ---------------------------------------------------------------- public API
+def notify_message_bg(title: str, message: str, data: dict | None = None) -> None:
+    """Fire-and-forget alert to Home Assistant. Never blocks or fails the caller."""
+    cfg = _cfg()
+    if not enabled(cfg):
+        return
+    threading.Thread(
+        target=_send_message, args=(cfg, title, message, data), daemon=True
+    ).start()
+
+
 def notify_bg(room_number, room_name, occupied: bool) -> None:
     """Fire-and-forget occupancy event. Never blocks or fails the caller."""
     cfg = _cfg()

@@ -305,3 +305,37 @@ body.guest {
   color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 38px; margin-bottom: 12px; }
 .copy-btn { margin-left: auto; background: #eef3fd; color: var(--accent-2); border: none;
   padding: 7px 12px; border-radius: 9px; font-size: 12.5px; font-weight: 600; }
+
+/* ================== v1.4.0 — overdue alerts & QR lockout ================== */
+.stat.red .num { color: var(--red); }
+
+.pill.overdue { background: rgba(239,68,68,.16); color: var(--red); }
+.txt-red { color: var(--red); }
+tr.row-overdue td { background: rgba(239,68,68,.06); }
+tr.row-overdue:hover td { background: rgba(239,68,68,.10); }
+
+/* alert banner */
+.alert-bar {
+  display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px;
+  background: linear-gradient(180deg, rgba(239,68,68,.10), rgba(239,68,68,.04));
+  border: 1px solid rgba(239,68,68,.35); border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.alert-bar .alert-ico {
+  width: 30px; height: 30px; flex: 0 0 auto; border-radius: 9px;
+  background: rgba(239,68,68,.18); color: var(--red);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 16px;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.alert-bar .alert-title {
+  font-weight: 700; font-size: 14px; color: var(--red); margin-bottom: 4px;
+}
+.alert-bar .alert-line {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  font-size: 13.5px; padding: 3px 0; flex-wrap: wrap;
+}
+
+/* guest room page — locked state */
+.locked-card { text-align: center; }
+.locked-card .lock-ico { font-size: 34px; line-height: 1; margin-bottom: 8px; }

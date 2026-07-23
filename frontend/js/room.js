@@ -39,6 +39,27 @@ function render(d) {
   const rn = room.room_name ? `${room.room_number} · ${room.room_name}` : `Room ${room.room_number}`;
   document.getElementById('roomLine').textContent = rn + (room.floor ? ` · Floor ${room.floor}` : '');
 
+  /* ---- locked: the stay has ended, this QR no longer hands anything out ---- */
+  if (d.locked) {
+    let lk = `<div class="g-card locked-card">
+        <div class="lock-ico">&#128274;</div>
+        <h3 style="margin:0 0 6px;">Stay ended</h3>
+        <p style="margin:0;color:#3a4763;font-size:15px;">
+          ${esc(h.locked_message || 'Please contact reception.')}</p>
+      </div>`;
+    let c = '';
+    c += infoRow('&#127976;', 'Reception', h.reception_phone, { copy: !!h.reception_phone });
+    c += infoRow('&#128680;', 'Emergency', h.emergency_number, { copy: !!h.emergency_number });
+    c += infoRow('&#128205;', 'Address', h.address);
+    if (c) lk += `<div class="g-card"><h3 style="margin:0 0 4px;">Contact</h3>${c}</div>`;
+    const calls = [];
+    if (h.reception_phone) calls.push(`<a href="tel:${esc(h.reception_phone)}">&#128222; Call reception</a>`);
+    if (calls.length) lk += `<div class="g-actions">${calls.join('')}</div>`;
+    document.getElementById('body').innerHTML = lk;
+    bindCopy();
+    return;
+  }
+
   let html = '';
 
   if (h.welcome_message) {
@@ -54,8 +75,12 @@ function render(d) {
 
   // Stay details
   let stay = '';
+  if (d.occupant && d.occupant.check_in_at) {
+    stay += infoRow('&#128100;', 'Checked in', d.occupant.check_in_at.replace('T', ' ').slice(0, 16));
+  }
   if (d.occupant && d.occupant.check_out_at) {
-    stay += infoRow('&#128197;', 'Checkout date', d.occupant.check_out_at.replace('T', ' '));
+    stay += infoRow('&#128197;', 'Checkout date',
+      d.occupant.check_out_at.replace('T', ' ').slice(0, 16));
   }
   stay += infoRow('&#9200;', 'Checkout time', h.checkout_time);
   if (stay) html += `<div class="g-card"><h3 style="margin:0 0 4px;">Your stay</h3>${stay}</div>`;
@@ -91,7 +116,10 @@ function render(d) {
   if (calls.length) html += `<div class="g-actions">${calls.join('')}</div>`;
 
   document.getElementById('body').innerHTML = html;
+  bindCopy();
+}
 
+function bindCopy() {
   document.querySelectorAll('.copy-btn').forEach(b => {
     b.addEventListener('click', () => {
       navigator.clipboard.writeText(b.dataset.copy).then(() => {

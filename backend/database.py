@@ -19,6 +19,64 @@ def _now():
     return dt.datetime.utcnow().isoformat(timespec="seconds")
 
 
+# ---------------------------------------------------------------------------
+# Local time helpers.
+# The admin UI sends <input type="datetime-local"> values, which are LOCAL wall
+# clock. Storing "now" as UTC made those two mismatch by the TZ offset, so
+# overdue checks fired late and displayed times looked wrong. Everything the
+# user sees is now written in local wall-clock using tz_offset_minutes.
+# ---------------------------------------------------------------------------
+_TZ_CACHE = {"val": None, "at": 0.0}
+DEFAULT_TZ_OFFSET = 120  # SAST (UTC+2)
+
+
+def tz_offset_minutes(force: bool = False) -> int:
+    import time as _t
+    if not force and _TZ_CACHE["val"] is not None and (_t.time() - _TZ_CACHE["at"]) < 30:
+        return _TZ_CACHE["val"]
+    val = DEFAULT_TZ_OFFSET
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT tz_offset_minutes FROM settings WHERE id = 1").fetchone()
+        if row is not None and row[0] is not None:
+            val = int(row[0])
+    except Exception:  # noqa: BLE001 - table/column may not exist yet
+        pass
+    _TZ_CACHE["val"] = val
+    _TZ_CACHE["at"] = _t.time()
+    return val
+
+
+def local_dt() -> dt.datetime:
+    return dt.datetime.utcnow() + dt.timedelta(minutes=tz_offset_minutes())
+
+
+def now_local() -> str:
+    return local_dt().isoformat(timespec="seconds")
+
+
+def parse_ts(value):
+    """Parse the timestamp formats we store / receive. Returns None if unusable."""
+    if not value:
+        return None
+    s = str(value).strip().replace(" ", "T")
+    s = s.split("+")[0].split("Z")[0].split(".")[0]
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+        try:
+            return dt.datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def minutes_between(a: str, b: str):
+    """Whole minutes from a -> b. None if either side is unparseable."""
+    da, db_ = parse_ts(a), parse_ts(b)
+    if not da or not db_:
+        return None
+    return int((db_ - da).total_seconds() // 60)
+
+
 @contextmanager
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -114,6 +172,21 @@ CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     created_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,              -- overdue_checkout
+    stay_id INTEGER,
+    room_id INTEGER,
+    title TEXT DEFAULT '',
+    message TEXT DEFAULT '',
+    severity TEXT DEFAULT 'warn',    -- warn | alert
+    created_at TEXT,
+    acknowledged_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts (acknowledged_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_stays_status ON stays (status);
 """
 
 
@@ -125,6 +198,17 @@ MIGRATIONS = [
     "ALTER TABLE settings ADD COLUMN ha_use_room_name INTEGER DEFAULT 0",
     "ALTER TABLE settings ADD COLUMN ha_sync_minutes INTEGER DEFAULT 15",
     "ALTER TABLE settings ADD COLUMN ha_token TEXT DEFAULT ''",
+    # --- v1.4.0: overdue checkout alerts + room QR lockout ---
+    "ALTER TABLE stays ADD COLUMN checked_out_at TEXT",
+    "ALTER TABLE stays ADD COLUMN overdue_notified_at TEXT",
+    "ALTER TABLE settings ADD COLUMN tz_offset_minutes INTEGER DEFAULT 120",
+    "ALTER TABLE settings ADD COLUMN overdue_alerts_enabled INTEGER DEFAULT 1",
+    "ALTER TABLE settings ADD COLUMN overdue_grace_minutes INTEGER DEFAULT 15",
+    "ALTER TABLE settings ADD COLUMN overdue_repeat_hours INTEGER DEFAULT 6",
+    "ALTER TABLE settings ADD COLUMN room_lock_on_checkout INTEGER DEFAULT 1",
+    "ALTER TABLE settings ADD COLUMN room_lock_grace_minutes INTEGER DEFAULT 0",
+    "ALTER TABLE settings ADD COLUMN room_lock_message TEXT DEFAULT "
+    "'Your stay has ended. Please contact reception if you need anything.'",
 ]
 
 

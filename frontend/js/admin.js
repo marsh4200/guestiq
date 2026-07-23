@@ -6,6 +6,27 @@ function esc(s) {
   return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+/* ---- time / duration helpers (v1.4.0) ---- */
+function fmtTs(v, fallback) {
+  if (!v) return fallback === undefined ? '\u2014' : fallback;
+  return String(v).replace('T', ' ').slice(0, 16);
+}
+function humanMins(m) {
+  m = Math.abs(parseInt(m || 0, 10));
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+  const p = [];
+  if (d) p.push(d + 'd');
+  if (h) p.push(h + 'h');
+  if (mm || !p.length) p.push(mm + 'm');
+  return p.join(' ');
+}
+function nowLocalInput(plusHours) {
+  const d = new Date();
+  if (plusHours) d.setHours(d.getHours() + plusHours);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function toast(msg) {
   const el = document.createElement('div');
   el.className = 'toast'; el.textContent = msg;
@@ -152,47 +173,103 @@ async function _runConfirm(btn) {
 }
 
 /* ========================== CHECK-INS TAB ========================== */
-async function renderCheckins() {
+let _checkinTimer = null;
+
+function startCheckinAutoRefresh() {
+  clearInterval(_checkinTimer);
+  _checkinTimer = setInterval(() => {
+    const tab = document.getElementById('tab-checkins');
+    if (!tab || tab.classList.contains('hidden')) return;
+    if (document.hidden) return;
+    if (document.getElementById('modalRoot').innerHTML) return; // don't yank a modal
+    renderCheckins(true);
+  }, 60000);
+}
+
+async function renderCheckins(quiet) {
   const el = document.getElementById('tab-checkins');
-  el.innerHTML = '<div class="empty">Loading…</div>';
-  const [pending, active] = await Promise.all([
+  if (!quiet) el.innerHTML = '<div class="empty">Loading…</div>';
+  const [pending, active, departures, alerts] = await Promise.all([
     api('/api/stays?status=pending'),
     api('/api/stays?status=checked_in'),
+    api('/api/stays?status=checked_out&limit=12').catch(() => []),
+    api('/api/alerts').catch(() => []),
   ]);
   ROOMS = await api('/api/rooms');
   window._pending = pending;
   window._active = active;
-  setNavBadge('checkins', pending.length);
+  window._departures = departures;
+
+  const overdue = active.filter(s => s.overdue);
+  setNavBadge('checkins', pending.length + overdue.length);
   const freeRooms = ROOMS.filter(r => r.status === 'available').length;
 
+  /* ---------------- alert banner ---------------- */
+  const alertHtml = alerts.length ? `
+    <div class="alert-bar">
+      <div class="alert-ico">!</div>
+      <div style="flex:1;min-width:0;">
+        <div class="alert-title">${alerts.length} open alert${alerts.length > 1 ? 's' : ''}</div>
+        ${alerts.slice(0, 4).map(a => `
+          <div class="alert-line">
+            <span>${esc(a.message || a.title)}</span>
+            <button class="btn ghost sm" onclick="ackAlert(${a.id})">Dismiss</button>
+          </div>`).join('')}
+        ${alerts.length > 4 ? `<div class="alert-line muted">+ ${alerts.length - 4} more…</div>` : ''}
+      </div>
+      <button class="btn ghost sm" onclick="ackAllAlerts()">Clear all</button>
+    </div>` : '';
+
+  /* ---------------- pending ---------------- */
   const pendingRows = pending.length ? pending.map(s => `
     <tr>
       <td><b>${esc(s.full_name)}</b><br><span class="muted" style="font-size:12px;">
         ${esc(s.phone || s.email || '')}</span></td>
       <td>${esc(s.id_number || '—')}</td>
       <td>${s.num_guests || 1}</td>
-      <td class="muted" style="font-size:12px;">${esc((s.created_at||'').replace('T',' '))}</td>
+      <td class="muted" style="font-size:12px;">${esc(fmtTs(s.created_at))}</td>
       <td class="row end">
         <button class="btn green sm" onclick="openAssign(${s.id})">Assign room</button>
         <button class="btn ghost sm" onclick="cancelStay(${s.id})">✕</button>
       </td>
     </tr>`).join('') : `<tr><td colspan="5" class="empty">No pending check-ins</td></tr>`;
 
-  const activeRows = active.length ? active.map(s => `
-    <tr>
-      <td><b>${esc(s.full_name)}</b></td>
+  /* ---------------- in-house (overdue first) ---------------- */
+  const sorted = active.slice().sort((a, b) =>
+    (b.minutes_over || 0) - (a.minutes_over || 0));
+  const activeRows = sorted.length ? sorted.map(s => `
+    <tr class="${s.overdue ? 'row-overdue' : ''}">
+      <td><b>${esc(s.full_name)}</b>
+        ${s.overdue ? '<br><span class="pill overdue">Overdue ' + esc(s.overdue_text) + '</span>' : ''}</td>
       <td>${s.room_number ? esc(s.room_number) + (s.room_name ? ' · ' + esc(s.room_name) : '') : '—'}</td>
-      <td>${esc((s.check_in_at||'').replace('T',' ').slice(0,16))}</td>
-      <td>${esc((s.check_out_at||'').replace('T',' ').slice(0,16))}</td>
+      <td>${esc(fmtTs(s.check_in_at))}</td>
+      <td class="${s.overdue ? 'txt-red' : ''}">${esc(fmtTs(s.check_out_at))}</td>
       <td class="row end">
-        <button class="btn amber sm" onclick="openCheckout(${s.id})">Check out</button>
+        ${s.overdue ? `<button class="btn ghost sm" onclick="openExtend(${s.id})">Extend</button>` : ''}
+        <button class="btn ${s.overdue ? 'red' : 'amber'} sm" onclick="openCheckout(${s.id})">Check out</button>
       </td>
     </tr>`).join('') : `<tr><td colspan="5" class="empty">No active guests</td></tr>`;
 
+  /* ---------------- departures ---------------- */
+  const depRows = departures.length ? departures.map(s => `
+    <tr>
+      <td><b>${esc(s.full_name)}</b></td>
+      <td>${s.room_number ? esc(s.room_number) + (s.room_name ? ' · ' + esc(s.room_name) : '') : '—'}</td>
+      <td>${esc(fmtTs(s.check_in_at))}</td>
+      <td>${esc(fmtTs(s.check_out_at))}</td>
+      <td>${esc(fmtTs(s.checked_out_at))}</td>
+      <td>${!s.checked_out_at ? '<span class="muted">—</span>'
+            : s.overstayed_minutes
+              ? '<span class="pill overdue">+' + esc(s.overstayed_text) + '</span>'
+              : '<span class="pill checked_in">On time</span>'}</td>
+    </tr>`).join('') : `<tr><td colspan="6" class="empty">No departures yet</td></tr>`;
+
   el.innerHTML = `
+    ${alertHtml}
     <div class="stats">
       <div class="stat amber"><div class="num">${pending.length}</div><div class="lbl">Pending arrivals</div></div>
       <div class="stat green"><div class="num">${active.length}</div><div class="lbl">Guests in-house</div></div>
+      <div class="stat red"><div class="num">${overdue.length}</div><div class="lbl">Overdue checkout</div></div>
       <div class="stat blue"><div class="num">${freeRooms}</div><div class="lbl">Rooms available</div></div>
       <div class="stat"><div class="num">${ROOMS.length}</div><div class="lbl">Total rooms</div></div>
     </div>
@@ -207,10 +284,27 @@ async function renderCheckins() {
         <div class="row"><h2 style="margin:0;flex:1;">Currently checked in ${active.length ? '· ' + active.length : ''}</h2>
           <button class="btn sm" onclick="openManualStay()">+ Manual check-in</button></div>
         <table style="margin-top:12px;"><thead><tr><th>Guest</th><th>Room</th>
-          <th>Checked in</th><th>Checkout</th><th></th></tr></thead>
+          <th>Checked in</th><th>Due out</th><th></th></tr></thead>
           <tbody>${activeRows}</tbody></table>
       </div>
+      <div class="card">
+        <h2>Recent departures</h2>
+        <table><thead><tr><th>Guest</th><th>Room</th><th>Checked in</th>
+          <th>Due out</th><th>Checked out</th><th>Overstay</th></tr></thead>
+          <tbody>${depRows}</tbody></table>
+      </div>
     </div>`;
+  startCheckinAutoRefresh();
+}
+
+/* ---------------------------- alerts ---------------------------- */
+async function ackAlert(id) {
+  try { await api('/api/alerts/' + id + '/ack', { method: 'POST' }); renderCheckins(true); }
+  catch (e) { toast(e.message); }
+}
+async function ackAllAlerts() {
+  try { await api('/api/alerts/ack-all', { method: 'POST' }); renderCheckins(true); }
+  catch (e) { toast(e.message); }
 }
 
 function roomOptions(selected) {
@@ -291,34 +385,109 @@ async function submitManualStay() {
   } catch (e) { toast(e.message); }
 }
 
-/* proper checkout modal with guest summary */
+/* checkout modal — full stay timeline (v1.4.0) */
 function openCheckout(id) {
   const s = (window._active || []).find(x => x.id === id) || {};
   const room = s.room_number
     ? esc(s.room_number) + (s.room_name ? ' · ' + esc(s.room_name) : '') : '—';
+  const over = s.overdue && s.minutes_over;
   confirmModal({
     title: 'Check out guest',
-    icon: '👋', iconClass: 'amber',
+    icon: over ? '⏰' : '👋', iconClass: over ? 'red' : 'amber',
     message: '',
     detailHtml: `
       <div class="sumbox">
         <div class="sumrow"><span class="k">Guest</span><span class="v">${esc(s.full_name || '—')}</span></div>
         <div class="sumrow"><span class="k">Room</span><span class="v">${room}</span></div>
-        <div class="sumrow"><span class="k">Checked in</span><span class="v">${esc((s.check_in_at||'—').replace('T',' ').slice(0,16))}</span></div>
-        <div class="sumrow"><span class="k">Due out</span><span class="v">${esc((s.check_out_at||'—').replace('T',' ').slice(0,16))}</span></div>
+        <div class="sumrow"><span class="k">Checked in</span><span class="v">${esc(fmtTs(s.check_in_at))}</span></div>
+        <div class="sumrow"><span class="k">Due out</span>
+          <span class="v ${over ? 'txt-red' : ''}">${esc(fmtTs(s.check_out_at))}</span></div>
+        <div class="sumrow"><span class="k">Checking out</span><span class="v">${esc(fmtTs(nowLocalInput()))}</span></div>
+        <div class="sumrow"><span class="k">Status</span><span class="v">
+          ${over
+            ? '<span class="pill overdue">Overstayed ' + esc(s.overdue_text) + '</span>'
+            : '<span class="pill checked_in">On time</span>'}</span></div>
+        ${s.duration_text ? `<div class="sumrow"><span class="k">Booked for</span>
+          <span class="v">${esc(s.duration_text)}</span></div>` : ''}
       </div>
       <p class="muted" style="font-size:13px;margin:10px 0 0;">
-        The room will be marked <b style="color:var(--green);">available</b> and
-        Home Assistant automations (geyser etc.) will switch to unoccupied.</p>`,
-    okText: 'Check out', okClass: 'amber',
+        The room becomes <b style="color:var(--green);">available</b>, Home Assistant
+        switches it to unoccupied, and the room QR code stops showing Wi-Fi,
+        the menu and stay details until the next guest checks in.</p>`,
+    okText: 'Check out', okClass: over ? 'red' : 'amber',
     onOk: async () => {
       try {
-        await api(`/api/stays/${id}/checkout`, { method: 'POST' });
-        closeModal(); toast('Guest checked out'); renderCheckins();
+        const r = await api(`/api/stays/${id}/checkout`, { method: 'POST' });
+        toast('Guest checked out');
+        showCheckoutSummary(s, r);
+        renderCheckins(true);
       } catch (e) { toast(e.message); closeModal(); }
     },
   });
 }
+
+/* post-checkout receipt: in / due / actual out / overstay */
+function showCheckoutSummary(s, r) {
+  const st = (r && r.stay) || {};
+  const room = st.room_number || s.room_number
+    ? esc(st.room_number || s.room_number) +
+      ((st.room_name || s.room_name) ? ' · ' + esc(st.room_name || s.room_name) : '')
+    : '—';
+  const overMins = (r && r.overstayed_minutes) || 0;
+  openModal(`
+    <div class="sumbox">
+      <div class="sumrow"><span class="k">Guest</span><span class="v">${esc(st.full_name || s.full_name || '—')}</span></div>
+      <div class="sumrow"><span class="k">Room</span><span class="v">${room}</span></div>
+      <div class="sumrow"><span class="k">Checked in</span><span class="v">${esc(fmtTs(st.check_in_at || s.check_in_at))}</span></div>
+      <div class="sumrow"><span class="k">Due out</span><span class="v">${esc(fmtTs(st.check_out_at || s.check_out_at))}</span></div>
+      <div class="sumrow"><span class="k">Checked out</span>
+        <span class="v" style="color:var(--green);">${esc(fmtTs(r && r.checked_out_at))}</span></div>
+      <div class="sumrow"><span class="k">Overstay</span><span class="v">
+        ${overMins
+          ? '<span class="pill overdue">+' + esc(r.overstayed_text) + '</span>'
+          : '<span class="pill checked_in">None — on time</span>'}</span></div>
+      ${st.duration_text ? `<div class="sumrow"><span class="k">Total stay</span>
+        <span class="v">${esc(st.duration_text)}</span></div>` : ''}
+    </div>
+    <p class="muted" style="font-size:12.5px;margin:12px 0 0;">
+      Room QR access revoked · room marked available.</p>
+    <div class="row end" style="margin-top:16px;">
+      <button class="btn" onclick="closeModal()">Done</button>
+    </div>`, { title: 'Checked out', icon: '✓', iconClass: 'green' });
+}
+
+/* extend a stay straight from the overdue row */
+function openExtend(id) {
+  const s = (window._active || []).find(x => x.id === id) || {};
+  openModal(`
+    <div class="sumbox">
+      <div class="sumrow"><span class="k">Guest</span><span class="v">${esc(s.full_name || '—')}</span></div>
+      <div class="sumrow"><span class="k">Was due</span>
+        <span class="v txt-red">${esc(fmtTs(s.check_out_at))}</span></div>
+      ${s.overdue_text ? `<div class="sumrow"><span class="k">Overdue by</span>
+        <span class="v">${esc(s.overdue_text)}</span></div>` : ''}
+    </div>
+    <label>New check-out</label>
+    <input id="exOut" type="datetime-local" value="${defaultCheckout()}">
+    <div class="row" style="margin-top:8px;">
+      <button class="btn ghost sm" onclick="document.getElementById('exOut').value='${nowLocalInput(2)}'">+2 hours</button>
+      <button class="btn ghost sm" onclick="document.getElementById('exOut').value='${nowLocalInput(24)}'">+1 day</button>
+    </div>
+    <div class="row end" style="margin-top:16px;">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn green" onclick="submitExtend(${id})">Extend stay</button>
+    </div>`, { title: 'Extend stay', icon: '⏱', iconClass: 'blue' });
+}
+async function submitExtend(id) {
+  const out = document.getElementById('exOut').value;
+  if (!out) { toast('Pick a new checkout time'); return; }
+  try {
+    await api(`/api/stays/${id}/extend`, { method: 'POST',
+      body: JSON.stringify({ check_out_at: out }) });
+    closeModal(); toast('Stay extended'); renderCheckins(true);
+  } catch (e) { toast(e.message); }
+}
+
 function cancelStay(id) {
   const s = (window._pending || []).find(x => x.id === id) || {};
   confirmModal({
@@ -574,7 +743,58 @@ async function renderSettings() {
           <button class="btn ghost" onclick="changePw()">Update password</button>
         </div>
       </div>
+      <div class="card">
+        <h2>Overdue checkout alerts</h2>
+        <p class="muted" style="margin-top:0;font-size:13px;">
+          Reception is notified when a guest is still in-house past their
+          check-out time. Alerts also raise a notification in Home Assistant
+          when the Automation tab is connected.</p>
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="sOverdueOn" style="width:auto;"
+            ${s.overdue_alerts_enabled ? 'checked' : ''}> Notify on overdue check-outs
+        </label>
+        <div class="grid cols-2">
+          <div><label>Grace period (minutes)</label>
+            <input id="sGrace" type="number" min="0" value="${s.overdue_grace_minutes == null ? 15 : s.overdue_grace_minutes}"></div>
+          <div><label>Re-notify every (hours, 0 = once)</label>
+            <input id="sRepeat" type="number" min="0" value="${s.overdue_repeat_hours == null ? 6 : s.overdue_repeat_hours}"></div>
+        </div>
+        <label>Time zone offset from UTC (minutes)</label>
+        <input id="sTz" type="number" value="${s.tz_offset_minutes == null ? 120 : s.tz_offset_minutes}">
+        <p class="muted" style="font-size:12px;margin-top:4px;">
+          120 = UTC+2 (South Africa). This is what check-in / check-out times are
+          stamped and compared in.</p>
+        <div class="row end" style="margin-top:12px;">
+          <button class="btn ghost" onclick="scanOverdueNow()">Check for overdue now</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Room QR access</h2>
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="sLockQr" style="width:auto;"
+            ${s.room_lock_on_checkout ? 'checked' : ''}> Lock room QR codes on check-out
+        </label>
+        <p class="muted" style="font-size:12px;margin-top:6px;">
+          Once the guest checks out, scanning the room QR no longer shows Wi-Fi,
+          the bar / restaurant menu or stay details — it shows a "see reception"
+          message instead. The printed code keeps working for the next guest.</p>
+        <label>Grace period after check-out (minutes)</label>
+        <input id="sLockGrace" type="number" min="0" value="${s.room_lock_grace_minutes == null ? 0 : s.room_lock_grace_minutes}">
+        <label>Message shown on a locked room page</label>
+        <textarea id="sLockMsg">${esc(s.room_lock_message || '')}</textarea>
+        <div class="row end" style="margin-top:12px;">
+          <button class="btn" onclick="saveSettings()">Save settings</button>
+        </div>
+      </div>
     </div>`;
+}
+async function scanOverdueNow() {
+  try {
+    const r = await api('/api/alerts/scan', { method: 'POST' });
+    toast(r.overdue
+      ? `${r.overdue} overdue · ${r.notified} new alert(s)`
+      : 'No overdue check-outs');
+  } catch (e) { toast(e.message); }
 }
 async function saveSettings() {
   const body = {
@@ -588,6 +808,13 @@ async function saveSettings() {
     restaurant_name: document.getElementById('sResName').value,
     restaurant_phone: document.getElementById('sResPhone').value,
     menu_url: document.getElementById('sMenu').value.trim(),
+    tz_offset_minutes: parseInt(document.getElementById('sTz').value || '120', 10),
+    overdue_alerts_enabled: document.getElementById('sOverdueOn').checked,
+    overdue_grace_minutes: parseInt(document.getElementById('sGrace').value || '0', 10),
+    overdue_repeat_hours: parseInt(document.getElementById('sRepeat').value || '0', 10),
+    room_lock_on_checkout: document.getElementById('sLockQr').checked,
+    room_lock_grace_minutes: parseInt(document.getElementById('sLockGrace').value || '0', 10),
+    room_lock_message: document.getElementById('sLockMsg').value,
   };
   await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
   toast('Settings saved');
