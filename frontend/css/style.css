@@ -411,3 +411,26 @@ tr.row-off td { opacity: .55; }
 .auto-note b { font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
   color: var(--muted); }
 .auto-note p { margin: 6px 0 0; font-size: 13px; color: var(--text); line-height: 1.5; }
+
+/* ============== v1.6.0 — property logo on the guest pages ============== */
+.guest .g-logo.has-img {
+  background: #fff; padding: 6px; width: 84px; height: 84px;
+  border-radius: 18px; box-shadow: 0 10px 26px rgba(30,50,90,.16);
+  border: 1px solid #e2e8f5;
+}
+.guest .g-logo.has-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* settings preview */
+.logo-preview {
+  display: flex; align-items: center; gap: 14px; margin: 8px 0 4px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px;
+}
+.logo-thumb {
+  width: 62px; height: 62px; flex: 0 0 auto; border-radius: 12px;
+  background: #fff; padding: 5px; display: flex; align-items: center;
+  justify-content: center; border: 1px solid var(--border);
+}
+.logo-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.logo-thumb.empty { background: var(--panel-3); color: var(--muted);
+  font-size: 11px; text-align: center; padding: 8px; }

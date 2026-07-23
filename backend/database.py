@@ -223,6 +223,9 @@ MIGRATIONS = [
     "'Your stay has ended. Please contact reception if you need anything.'",
     # --- v1.5.0: staff accounts ---
     "ALTER TABLE sessions ADD COLUMN user_id INTEGER",
+    # --- v1.6.0: property logo ---
+    "ALTER TABLE settings ADD COLUMN logo_file TEXT DEFAULT ''",
+    "ALTER TABLE settings ADD COLUMN logo_updated TEXT DEFAULT ''",
 ]
 
 

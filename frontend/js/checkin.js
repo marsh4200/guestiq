@@ -4,8 +4,20 @@ async function loadBranding() {
     const b = await r.json();
     if (b.hotel_name) {
       document.getElementById('hotelName').textContent = b.hotel_name;
-      document.getElementById('logo').textContent =
-        b.hotel_name.split(/\s+/).map(w => w[0]).join('').slice(0, 3).toUpperCase() || 'GIQ';
+    }
+    const logo = document.getElementById('logo');
+    const initials = (b.hotel_name || 'GIQ').split(/\s+/)
+      .map(w => w[0]).join('').slice(0, 3).toUpperCase() || 'GIQ';
+    if (b.logo_url) {
+      logo.classList.add('has-img');
+      const img = new Image();
+      img.alt = b.hotel_name || '';
+      img.onerror = () => { logo.classList.remove('has-img'); logo.textContent = initials; };
+      img.src = b.logo_url;
+      logo.textContent = '';
+      logo.appendChild(img);
+    } else {
+      logo.textContent = initials;
     }
     if (b.welcome_message) document.getElementById('welcomeMsg').textContent = b.welcome_message;
   } catch (e) { /* keep defaults */ }

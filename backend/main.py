@@ -8,7 +8,7 @@ import os
 import datetime as dt
 from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException, Header, Depends
+from fastapi import FastAPI, Request, HTTPException, Header, Depends, UploadFile, File
 from fastapi.responses import (
     JSONResponse, StreamingResponse, FileResponse, RedirectResponse,
 )
@@ -159,6 +159,7 @@ def get_settings(user: dict = Depends(auth.require_user)):
     account is allowed to manage automation."""
     s = _settings_row()
     s.pop("admin_password", None)
+    s["logo_url"] = _logo_url(s)
     if "automation" not in auth.perms_of(user):
         for k in AUTOMATION_FIELDS:
             s.pop(k, None)
@@ -195,6 +196,95 @@ def change_password(body: PasswordIn, user: dict = Depends(auth.require_admin_ro
             (db.hash_password(body.new_password), _now()),
         )
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Property logo — shown on every QR-scanned guest page
+# ---------------------------------------------------------------------------
+LOGO_DIR = os.path.join(db.DATA_DIR, "branding")
+LOGO_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/svg+xml": ".svg",
+}
+LOGO_MAX_BYTES = 3 * 1024 * 1024   # 3 MB
+
+
+def _logo_url(s: dict) -> str:
+    """Cache-busted public URL, or '' when no logo has been uploaded."""
+    if not s.get("logo_file"):
+        return ""
+    stamp = (s.get("logo_updated") or "").replace(":", "").replace("-", "")
+    return f"/api/logo?v={stamp}" if stamp else "/api/logo"
+
+
+@app.post("/api/settings/logo")
+async def upload_logo(file: UploadFile = File(...),
+                      user: dict = Depends(auth.require_perm("settings"))):
+    ext = LOGO_TYPES.get((file.content_type or "").lower())
+    if not ext:
+        raise HTTPException(400, "Use a PNG, JPG, WEBP, GIF or SVG image")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "That file is empty")
+    if len(data) > LOGO_MAX_BYTES:
+        raise HTTPException(400, "Logo must be smaller than 3 MB")
+
+    os.makedirs(LOGO_DIR, exist_ok=True)
+    for old_file in os.listdir(LOGO_DIR):           # only ever keep one
+        try:
+            os.remove(os.path.join(LOGO_DIR, old_file))
+        except OSError:
+            pass
+    name = f"logo{ext}"
+    with open(os.path.join(LOGO_DIR, name), "wb") as fh:
+        fh.write(data)
+    with db.get_db() as conn:
+        conn.execute(
+            "UPDATE settings SET logo_file = ?, logo_updated = ?, updated_at = ? WHERE id = 1",
+            (name, _now(), _now()),
+        )
+    return {"ok": True, "logo_url": _logo_url(_settings_row())}
+
+
+@app.delete("/api/settings/logo")
+def delete_logo(user: dict = Depends(auth.require_perm("settings"))):
+    s = _settings_row()
+    if s.get("logo_file"):
+        try:
+            os.remove(os.path.join(LOGO_DIR, s["logo_file"]))
+        except OSError:
+            pass
+    with db.get_db() as conn:
+        conn.execute(
+            "UPDATE settings SET logo_file = '', logo_updated = '', updated_at = ? WHERE id = 1",
+            (_now(),),
+        )
+    return {"ok": True}
+
+
+@app.get("/api/logo")
+def get_logo():
+    """Public: the guest pages are reached by QR with no login."""
+    s = _settings_row()
+    name = s.get("logo_file")
+    path = os.path.join(LOGO_DIR, name) if name else ""
+    if not name or not os.path.exists(path):
+        raise HTTPException(404, "No logo uploaded")
+    media = next((m for m, e in LOGO_TYPES.items() if name.endswith(e)), "image/png")
+    return FileResponse(
+        path,
+        media_type=media,
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+            # an uploaded SVG must never be able to run anything
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -798,6 +888,7 @@ def public_room_info(code: str):
                     "address": s["address"],
                     "reception_phone": s["reception_phone"],
                     "emergency_number": s["emergency_number"],
+                    "logo_url": _logo_url(s),
                     "locked_message": s.get("room_lock_message")
                     or "Your stay has ended. Please contact reception if you need anything.",
                 },
@@ -824,6 +915,7 @@ def public_room_info(code: str):
             "emergency_number": s["emergency_number"],
             "checkout_time": s["checkout_time"],
             "welcome_message": s["welcome_message"],
+            "logo_url": _logo_url(s),
         },
     }
 
@@ -890,7 +982,7 @@ def sync_automation(user: dict = Depends(auth.require_perm("automation"))):
 def public_branding():
     s = _settings_row()
     return {"hotel_name": s["hotel_name"], "welcome_message": s["welcome_message"],
-            "address": s["address"]}
+            "address": s["address"], "logo_url": _logo_url(s)}
 
 
 # ---------------------------------------------------------------------------

@@ -41,11 +41,29 @@ async function load() {
   }
 }
 
+function paintLogo(h) {
+  const el = document.getElementById('logo');
+  if (!el) return;
+  const initials = (h.hotel_name || 'GIQ').split(/\s+/)
+    .map(w => w[0]).join('').slice(0, 3).toUpperCase() || 'GIQ';
+  el.textContent = '';
+  if (h.logo_url) {
+    el.classList.add('has-img');
+    const img = new Image();
+    img.alt = h.hotel_name || '';
+    img.onerror = () => { el.classList.remove('has-img'); el.textContent = initials; };
+    img.src = h.logo_url;
+    el.appendChild(img);
+  } else {
+    el.classList.remove('has-img');
+    el.textContent = initials;
+  }
+}
+
 function render(d) {
   const h = d.hotel, room = d.room;
   document.getElementById('hotelName').textContent = h.hotel_name || 'Your Room';
-  document.getElementById('logo').textContent =
-    (h.hotel_name || 'GIQ').split(/\s+/).map(w => w[0]).join('').slice(0, 3).toUpperCase();
+  paintLogo(h);
   const rn = room.room_name ? `${room.room_number} · ${room.room_name}` : `Room ${room.room_number}`;
   document.getElementById('roomLine').textContent = rn + (room.floor ? ` · Floor ${room.floor}` : '');
 

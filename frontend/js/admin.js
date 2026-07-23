@@ -889,6 +889,21 @@ async function renderSettings() {
     <div class="grid cols-2">
       <div class="card">
         <h2>Hotel details</h2>
+        <label>Logo</label>
+        <div class="logo-preview">
+          <div class="logo-thumb ${s.logo_url ? '' : 'empty'}" id="logoThumb">
+            ${s.logo_url ? `<img src="${esc(s.logo_url)}" alt="Logo">` : 'No logo'}
+          </div>
+          <div style="flex:1;min-width:0;">
+            <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+              style="padding:7px;font-size:12.5px;" onchange="uploadLogo()">
+            <p class="muted" style="font-size:12px;margin:6px 0 0;">
+              Shown with the name on every page a guest reaches by scanning a QR
+              code. PNG, JPG, WEBP, GIF or SVG, up to 3 MB — a square logo on a
+              transparent background works best.</p>
+          </div>
+          ${s.logo_url ? '<button class="btn ghost sm" onclick="removeLogo()">Remove</button>' : ''}
+        </div>
         <label>Hotel name</label><input id="sName" ${f('',s.hotel_name)}>
         <label>Address</label><textarea id="sAddr">${esc(s.address||'')}</textarea>
         <label>Public URL (for QR links, e.g. Cloudflare tunnel)</label>
@@ -973,6 +988,41 @@ async function scanOverdueNow() {
       : 'No overdue check-outs');
   } catch (e) { toast(e.message); }
 }
+async function uploadLogo() {
+  const input = document.getElementById('logoFile');
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 3 * 1024 * 1024) { toast('Logo must be smaller than 3 MB'); input.value = ''; return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const r = await fetch('/api/settings/logo', {
+      method: 'POST', headers: { 'X-Auth-Token': TOKEN }, body: fd,
+    });
+    if (!r.ok) {
+      let m = 'Upload failed';
+      try { m = (await r.json()).detail || m; } catch (e) {}
+      throw new Error(m);
+    }
+    toast('Logo updated'); renderSettings();
+  } catch (e) { toast(e.message); input.value = ''; }
+}
+
+function removeLogo() {
+  confirmModal({
+    title: 'Remove logo',
+    icon: '🗑', iconClass: 'red',
+    message: 'Guest pages will fall back to showing the initials of the property name.',
+    okText: 'Remove', okClass: 'red',
+    onOk: async () => {
+      try {
+        await api('/api/settings/logo', { method: 'DELETE' });
+        closeModal(); toast('Logo removed'); renderSettings();
+      } catch (e) { toast(e.message); closeModal(); }
+    },
+  });
+}
+
 async function saveSettings() {
   const body = {
     hotel_name: document.getElementById('sName').value,
