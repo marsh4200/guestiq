@@ -1,13 +1,17 @@
 """
-GuestIQ -> Home Assistant automation bridge.
-Fires the AR Smart Load Manager webhook when rooms are occupied/vacated,
-plus a periodic full-state sync so a missed webhook always self-heals.
+GuestIQ -> automation hub bridge.
+Fires the load-manager webhook when rooms are occupied/vacated, plus a
+periodic full-state sync so a missed webhook always self-heals.
+
+The hub is never named in anything the operator sees: every message returned
+to the UI uses AUTOMATION_NAME (override with GUESTIQ_AUTOMATION_NAME).
 
 Config lives in the settings table (managed from the Automation tab):
   ha_enabled, ha_url, ha_webhook_id, ha_room_prefix, ha_use_room_name,
   ha_sync_minutes
 """
 import logging
+import os
 import threading
 import time
 
@@ -16,6 +20,9 @@ import httpx
 from . import database as db
 
 log = logging.getLogger("guestiq.ha")
+
+# Operator-facing name for the automation back end.
+AUTOMATION_NAME = os.environ.get("GUESTIQ_AUTOMATION_NAME", "AR Smart automation")
 
 _TIMEOUT = 10
 _RETRIES = 3
@@ -78,7 +85,7 @@ def _request(url: str, payload: dict, headers: dict | None) -> tuple[bool, str]:
             if r.status_code < 300:
                 return True, "ok"
             if r.status_code == 401:
-                return False, "HTTP 401 — access token rejected by Home Assistant"
+                return False, f"HTTP 401 — access token rejected by {AUTOMATION_NAME}"
             last = f"HTTP {r.status_code}: {r.text[:150]}"
         except Exception as err:  # noqa: BLE001
             last = str(err)
@@ -90,7 +97,7 @@ def _request(url: str, payload: dict, headers: dict | None) -> tuple[bool, str]:
 
 
 def _send_occupancy(cfg: dict, room_label: str, occupied: bool) -> tuple[bool, str]:
-    """Token mode: call the set_occupancy service on HA's REST API.
+    """Token mode: call the set_occupancy service on the hub's REST API.
     Webhook mode (no token): post to the webhook."""
     base = _base_url(cfg)
     token = _token(cfg)
@@ -102,13 +109,13 @@ def _send_occupancy(cfg: dict, room_label: str, occupied: bool) -> tuple[bool, s
         )
     endpoint = _endpoint(cfg)
     if not endpoint:
-        return False, "Configure the HA URL plus a token (or webhook ID)"
+        return False, "Configure the hub URL plus a token (or webhook ID)"
     return _request(endpoint, {"room": room_label, "occupied": bool(occupied)}, None)
 
 
 def _send_message(cfg: dict, title: str, message: str, data: dict | None) -> tuple[bool, str]:
-    """Raise a persistent notification in HA (token mode), else post to the webhook.
-    Used for overdue-checkout alerts."""
+    """Raise a persistent notification on the hub (token mode), else post to
+    the webhook. Used for overdue-checkout alerts."""
     base = _base_url(cfg)
     token = _token(cfg)
     if base and token:
@@ -121,7 +128,7 @@ def _send_message(cfg: dict, title: str, message: str, data: dict | None) -> tup
         )
     endpoint = _endpoint(cfg)
     if not endpoint:
-        return False, "Home Assistant is not configured"
+        return False, f"{AUTOMATION_NAME} is not configured"
     payload = {"title": title, "message": message}
     payload.update(data or {})
     return _request(endpoint, payload, None)
@@ -129,7 +136,7 @@ def _send_message(cfg: dict, title: str, message: str, data: dict | None) -> tup
 
 # ---------------------------------------------------------------- public API
 def notify_message_bg(title: str, message: str, data: dict | None = None) -> None:
-    """Fire-and-forget alert to Home Assistant. Never blocks or fails the caller."""
+    """Fire-and-forget alert to the automation hub. Never blocks the caller."""
     cfg = _cfg()
     if not enabled(cfg):
         return
@@ -187,7 +194,7 @@ def test_connection() -> tuple[bool, str]:
     base = _base_url(cfg)
     token = _token(cfg)
     if not base:
-        return False, "Enter the Home Assistant URL first"
+        return False, "Enter the automation hub URL first"
     if token:
         try:
             r = httpx.get(
@@ -196,19 +203,19 @@ def test_connection() -> tuple[bool, str]:
                 timeout=_TIMEOUT,
             )
             if r.status_code == 401:
-                return False, "Token rejected (401) — generate a new long-lived token in HA"
+                return False, "Token rejected (401) — generate a new access token on the hub"
             if r.status_code >= 300:
-                return False, f"HA answered HTTP {r.status_code}"
+                return False, f"The hub answered HTTP {r.status_code}"
         except Exception as err:  # noqa: BLE001
-            return False, f"Cannot reach Home Assistant: {err}"
+            return False, f"Cannot reach {AUTOMATION_NAME}: {err}"
     elif not _endpoint(cfg):
         return False, "Enter an access token (or a webhook ID) first"
     snapshot = occupancy_snapshot(cfg)
     if not snapshot:
-        return True, "Connected to Home Assistant — add rooms in GuestIQ to sync them"
-    ok, msg = full_sync() if enabled(cfg) else (False, "Tick 'Enable Home Assistant sync' first")
+        return True, f"Connected to {AUTOMATION_NAME} — add rooms in GuestIQ to sync them"
+    ok, msg = full_sync() if enabled(cfg) else (False, "Tick 'Enable automation sync' first")
     if ok:
-        return True, f"Connected — synced {len(snapshot)} room(s) to Home Assistant"
+        return True, f"Connected — synced {len(snapshot)} room(s) to {AUTOMATION_NAME}"
     return False, msg
 
 

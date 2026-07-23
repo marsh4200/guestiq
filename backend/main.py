@@ -155,7 +155,7 @@ def _settings_row():
 @app.get("/api/settings")
 def get_settings(user: dict = Depends(auth.require_user)):
     """Readable by any signed-in user (the console needs hotel name, checkout
-    time etc.), but the Home Assistant URL and token are stripped unless the
+    time etc.), but the automation hub URL and token are stripped unless the
     account is allowed to manage automation."""
     s = _settings_row()
     s.pop("admin_password", None)
@@ -825,7 +825,7 @@ def public_room_info(code: str):
 
 
 # ---------------------------------------------------------------------------
-# Automation (Home Assistant bridge)
+# Automation (smart-control bridge)
 # ---------------------------------------------------------------------------
 class AutomationIn(BaseModel):
     ha_enabled: Optional[bool] = None
@@ -846,7 +846,9 @@ AUTOMATION_FIELDS = (
 @app.get("/api/automation")
 def get_automation(user: dict = Depends(auth.require_perm("automation"))):
     s = _settings_row()
-    return {k: s.get(k) for k in AUTOMATION_FIELDS}
+    out = {k: s.get(k) for k in AUTOMATION_FIELDS}
+    out["automation_name"] = ha_sync.AUTOMATION_NAME
+    return out
 
 
 @app.put("/api/automation")
@@ -875,7 +877,8 @@ def test_automation(user: dict = Depends(auth.require_perm("automation"))):
 @app.post("/api/automation/sync")
 def sync_automation(user: dict = Depends(auth.require_perm("automation"))):
     ok, msg = ha_sync.full_sync()
-    return {"ok": ok, "message": "Synced all rooms to Home Assistant" if ok else msg}
+    return {"ok": ok, "message": f"Synced all rooms to {ha_sync.AUTOMATION_NAME}"
+            if ok else msg}
 
 
 # public branding for the check-in page header

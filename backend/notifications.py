@@ -3,7 +3,7 @@ GuestIQ - overdue checkout alerts.
 
 A stay is "overdue" when it is still checked_in and the wall clock has passed
 check_out_at (plus a grace period). The watcher thread raises an in-app alert,
-pushes a Home Assistant notification, and re-nags on a configurable interval
+pushes a notification to the automation hub, and re-nags on an interval
 until reception either checks the guest out or extends the stay.
 """
 import datetime as dt
@@ -162,7 +162,7 @@ def overdue_stays(now: str | None = None) -> list[dict]:
 
 
 def scan(force: bool = False) -> dict:
-    """Find overdue stays, raise alerts, notify HA. Returns a small summary."""
+    """Find overdue stays, raise alerts, notify the hub. Returns a summary."""
     cfg = _cfg()
     if not force and not cfg.get("overdue_alerts_enabled", 1):
         return {"overdue": 0, "notified": 0, "enabled": False}

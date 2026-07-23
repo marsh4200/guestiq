@@ -545,8 +545,8 @@ function openCheckout(id) {
           <span class="v">${esc(s.duration_text)}</span></div>` : ''}
       </div>
       <p class="muted" style="font-size:13px;margin:10px 0 0;">
-        The room becomes <b style="color:var(--green);">available</b>, Home Assistant
-        switches it to unoccupied, and the room QR code stops showing Wi-Fi,
+        The room becomes <b style="color:var(--green);">available</b>, its
+        automations switch to unoccupied, and the room QR code stops showing Wi-Fi,
         the menu and stay details until the next guest checks in.</p>`,
     okText: 'Check out', okClass: over ? 'red' : 'amber',
     onOk: async () => {
@@ -923,8 +923,8 @@ async function renderSettings() {
         <h2>Overdue checkout alerts</h2>
         <p class="muted" style="margin-top:0;font-size:13px;">
           Reception is notified when a guest is still in-house past their
-          check-out time. Alerts also raise a notification in Home Assistant
-          when the Automation tab is connected.</p>
+          check-out time. Alerts are also pushed to the automation hub when
+          the Automation tab is connected.</p>
         <label style="display:flex;align-items:center;gap:8px;">
           <input type="checkbox" id="sOverdueOn" style="width:auto;"
             ${s.overdue_alerts_enabled ? 'checked' : ''}> Notify on overdue check-outs
@@ -1483,23 +1483,23 @@ async function renderAutomation() {
   el.innerHTML = `
     <div class="grid cols-2">
       <div class="card">
-        <h2>Home Assistant connection</h2>
+        <h2>${esc(a.automation_name || 'Automation')} connection</h2>
         <p class="muted" style="margin-top:0;font-size:13px;">
           When a guest is checked in, their room's geyser (and any other
-          automations) switch on in Home Assistant. Check-out switches them back.
+          automations) switch on. Check-out switches them back.
         </p>
         <label style="display:flex;align-items:center;gap:8px;">
           <input type="checkbox" id="haEnabled" ${a.ha_enabled ? 'checked' : ''}
-                 style="width:auto;"> Enable Home Assistant sync
+                 style="width:auto;"> Enable automation sync
         </label>
-        <label>Home Assistant URL (IP or hostname, with port)</label>
+        <label>Hub URL (IP or hostname, with port)</label>
         <input id="haUrl" placeholder="http://192.168.1.50:8123" value="${esc(a.ha_url || '')}">
-        <label>Long-lived access token</label>
-        <input id="haToken" type="password" placeholder="Paste token from HA"
+        <label>Access token</label>
+        <input id="haToken" type="password" placeholder="Paste the hub access token"
                value="${esc(a.ha_token || '')}">
         <p class="muted" style="font-size:12px;margin-top:4px;">
-          In HA: click your user name (bottom left) → Security →
-          Long-lived access tokens → Create token. Paste it here.
+          Paste the long-lived access token generated on the hub. Leave this
+          blank to fall back to a webhook instead.
         </p>
         <label>Webhook ID (fallback, only used if no token)</label>
         <input id="haWebhook" placeholder="ar_smart_loadmanager_xxxxxxxx" value="${esc(a.ha_webhook_id || '')}">
@@ -1511,11 +1511,11 @@ async function renderAutomation() {
       </div>
       <div class="card">
         <h2>Room mapping & sync</h2>
-        <label>Room name prefix sent to HA</label>
+        <label>Room name prefix sent to the hub</label>
         <input id="haPrefix" value="${esc(a.ha_room_prefix == null ? 'Room ' : a.ha_room_prefix)}">
         <p class="muted" style="font-size:12px;margin-top:4px;">
-          GuestIQ room 3 → "Room 3" in Home Assistant. Must match the room
-          names configured in the Load Manager.
+          GuestIQ room 3 → "Room 3" on the hub. Must match the room names
+          configured in the load manager.
         </p>
         <label style="display:flex;align-items:center;gap:8px;">
           <input type="checkbox" id="haUseName" ${a.ha_use_room_name ? 'checked' : ''}

@@ -24,7 +24,7 @@ PERMISSIONS = [
     {"key": "guests_delete", "group": "Guests",   "label": "Delete guest records"},
     {"key": "qr",            "group": "QR codes", "label": "View & print QR codes"},
     {"key": "settings",      "group": "System",   "label": "Change hotel settings"},
-    {"key": "automation",    "group": "System",   "label": "Home Assistant automation"},
+    {"key": "automation",    "group": "System",   "label": "Automation & smart control"},
     {"key": "updates",       "group": "System",   "label": "Check & apply updates"},
 ]
 PERMISSION_KEYS = [p["key"] for p in PERMISSIONS]
