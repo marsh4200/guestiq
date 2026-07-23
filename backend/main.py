@@ -526,7 +526,9 @@ def assign_room(stay_id: int, body: AssignIn, user: dict = Depends(auth.require_
         )
         conn.execute("UPDATE rooms SET status='occupied' WHERE id=?", (body.room_id,))
         result = dict(_stay_row(conn, stay_id))
-    ha_sync.notify_bg(result.get("room_number"), result.get("room_name"), True)
+    ha_sync.notify_bg(result.get("room_number"), result.get("room_name"), True,
+                      {"num_guests": result.get("num_guests"),
+                       "due_out": result.get("check_out_at")})
     return result
 
 
@@ -548,7 +550,9 @@ def manual_stay(body: ManualStayIn, user: dict = Depends(auth.require_user)):
         )
         conn.execute("UPDATE rooms SET status='occupied' WHERE id=?", (body.room_id,))
         result = dict(_stay_row(conn, cur.lastrowid))
-    ha_sync.notify_bg(result.get("room_number"), result.get("room_name"), True)
+    ha_sync.notify_bg(result.get("room_number"), result.get("room_name"), True,
+                      {"num_guests": result.get("num_guests"),
+                       "due_out": result.get("check_out_at")})
     return result
 
 

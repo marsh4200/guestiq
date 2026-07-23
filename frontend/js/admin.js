@@ -546,8 +546,9 @@ function openCheckout(id) {
       </div>
       <p class="muted" style="font-size:13px;margin:10px 0 0;">
         The room becomes <b style="color:var(--green);">available</b>, its
-        automations switch to unoccupied, and the room QR code stops showing Wi-Fi,
-        the menu and stay details until the next guest checks in.</p>`,
+        geyser, lights, TV, air-con and any other smart devices switch to
+        unoccupied, and the room QR code stops showing Wi-Fi, the menu and
+        stay details until the next guest checks in.</p>`,
     okText: 'Check out', okClass: over ? 'red' : 'amber',
     onOk: async () => {
       try {
@@ -1485,8 +1486,10 @@ async function renderAutomation() {
       <div class="card">
         <h2>${esc(a.automation_name || 'Automation')} connection</h2>
         <p class="muted" style="margin-top:0;font-size:13px;">
-          When a guest is checked in, their room's geyser (and any other
-          automations) switch on. Check-out switches them back.
+          Checking a guest in tells the hub that room is occupied, so
+          everything wired to it wakes up — <b>geyser, lights, TV, air-con,
+          underfloor heating, anything smart in the room</b>. Check-out
+          switches it all back off.
         </p>
         <label style="display:flex;align-items:center;gap:8px;">
           <input type="checkbox" id="haEnabled" ${a.ha_enabled ? 'checked' : ''}
@@ -1527,6 +1530,14 @@ async function renderAutomation() {
           Pushes every room's occupancy on a timer so a missed event
           self-heals automatically.
         </p>
+        <div class="auto-note">
+          <b>What the hub receives</b>
+          <p>Each event carries the room, whether it's occupied, how many
+          guests and the due-out time — so automations can do more than
+          switch on and off: dim lights to a guest count, pre-heat before
+          arrival, kill the TV and air-con at check-out, or run a
+          housekeeping scene when the room empties.</p>
+        </div>
         <div class="row end" style="margin-top:14px;">
           <button class="btn ghost" onclick="syncAutomationNow()">Sync all rooms now</button>
         </div>

@@ -404,3 +404,10 @@ tr.row-off td { opacity: .55; }
 
 .cap-list { margin: 0 0 12px; padding-left: 18px; color: var(--text); font-size: 13.5px; }
 .cap-list li { padding: 3px 0; }
+
+/* automation explainer block */
+.auto-note { margin-top: 14px; padding: 12px 14px; border-radius: 12px;
+  background: var(--panel-2); border: 1px solid var(--border-soft); }
+.auto-note b { font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); }
+.auto-note p { margin: 6px 0 0; font-size: 13px; color: var(--text); line-height: 1.5; }

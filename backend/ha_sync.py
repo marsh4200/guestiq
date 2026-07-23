@@ -96,21 +96,24 @@ def _request(url: str, payload: dict, headers: dict | None) -> tuple[bool, str]:
     return False, last
 
 
-def _send_occupancy(cfg: dict, room_label: str, occupied: bool) -> tuple[bool, str]:
+def _send_occupancy(cfg: dict, room_label: str, occupied: bool,
+                    extra: dict | None = None) -> tuple[bool, str]:
     """Token mode: call the set_occupancy service on the hub's REST API.
     Webhook mode (no token): post to the webhook."""
+    payload = {"room": room_label, "occupied": bool(occupied)}
+    payload.update(extra or {})
     base = _base_url(cfg)
     token = _token(cfg)
     if base and token:
         return _request(
             f"{base}/api/services/ar_smart_loadmanager/set_occupancy",
-            {"room": room_label, "occupied": bool(occupied)},
+            payload,
             {"Authorization": f"Bearer {token}"},
         )
     endpoint = _endpoint(cfg)
     if not endpoint:
         return False, "Configure the hub URL plus a token (or webhook ID)"
-    return _request(endpoint, {"room": room_label, "occupied": bool(occupied)}, None)
+    return _request(endpoint, payload, None)
 
 
 def _send_message(cfg: dict, title: str, message: str, data: dict | None) -> tuple[bool, str]:
@@ -145,14 +148,21 @@ def notify_message_bg(title: str, message: str, data: dict | None = None) -> Non
     ).start()
 
 
-def notify_bg(room_number, room_name, occupied: bool) -> None:
-    """Fire-and-forget occupancy event. Never blocks or fails the caller."""
+def notify_bg(room_number, room_name, occupied: bool, extra: dict | None = None) -> None:
+    """Fire-and-forget occupancy event. Never blocks or fails the caller.
+
+    The payload carries more than on/off so hub automations can drive whatever
+    is wired to the room — geyser, lights, TV, air-con, anything:
+        room, occupied, num_guests, due_out, event
+    """
     cfg = _cfg()
     if not enabled(cfg):
         return
     label = _room_label(cfg, room_number, room_name)
+    body = {"event": "occupied" if occupied else "vacated"}
+    body.update(extra or {})
     threading.Thread(
-        target=_send_occupancy, args=(cfg, label, bool(occupied)), daemon=True
+        target=_send_occupancy, args=(cfg, label, bool(occupied), body), daemon=True
     ).start()
 
 
