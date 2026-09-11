@@ -442,3 +442,71 @@ tr.row-off td { opacity: .55; }
   background: rgba(245,158,11,.07); border: 1px solid rgba(245,158,11,.3);
 }
 #backupList table { margin-top: 4px; }
+
+/* ============== v1.9.0 — settings sub-tabs, license visibility, polish ============== */
+
+/* settings inner tab strip */
+.subnav {
+  display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 18px;
+  padding: 5px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.subnav-item {
+  display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto;
+  background: transparent; border: none; color: var(--muted);
+  padding: 8px 13px; border-radius: 9px; font-size: 13px; font-weight: 600;
+  transition: background .15s, color .15s;
+}
+.subnav-item svg { width: 15px; height: 15px; }
+.subnav-item:hover { color: var(--text); background: var(--panel-2); }
+.subnav-item.active {
+  color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 3px 10px rgba(59,130,246,.3);
+}
+.settings-pane { display: none; }
+.settings-pane.active { display: block; animation: paneIn .18s ease; }
+@keyframes paneIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+.section-lead { color: var(--muted); font-size: 13px; margin: -4px 0 16px; max-width: 640px; line-height: 1.5; }
+
+/* license chip — topbar */
+.license-chip {
+  display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px;
+  font-weight: 600; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--muted); cursor: pointer; transition: all .15s;
+}
+.license-chip:hover { border-color: var(--accent); color: var(--text); }
+.license-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--muted); }
+.license-chip.ok { color: var(--green); border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.08); }
+.license-chip.ok .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.license-chip.warn { color: var(--amber); border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
+.license-chip.warn .dot { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.license-chip.bad { color: var(--red); border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.08); }
+.license-chip.bad .dot { background: var(--red); box-shadow: 0 0 6px var(--red); animation: pulse 1.6s ease-in-out infinite; }
+
+/* license detail rows — modal & settings pane */
+.lic-rows { background: var(--panel-2); border: 1px solid var(--border-soft);
+  border-radius: 12px; padding: 4px 14px; margin: 10px 0; }
+.lic-row { display: flex; align-items: center; gap: 10px; padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft); font-size: 13.5px; flex-wrap: wrap; }
+.lic-row:last-child { border-bottom: none; }
+.lic-row .k { color: var(--muted); font-size: 12px; flex: 0 0 110px; }
+.lic-row .v { font-weight: 600; word-break: break-word; flex: 1; min-width: 0; }
+.lic-row .v.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: .3px; }
+
+/* license summary strip — checkins dashboard & settings pane */
+.lic-mini { display: flex; align-items: center; gap: 12px; }
+.lic-mini .lic-ico { width: 34px; height: 34px; border-radius: 10px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; }
+.lic-mini.ok .lic-ico { background: rgba(34,197,94,.15); color: var(--green); }
+.lic-mini.warn .lic-ico { background: rgba(245,158,11,.15); color: var(--amber); }
+.lic-mini.bad .lic-ico { background: rgba(239,68,68,.15); color: var(--red); }
+.lic-mini .lic-txt { display: flex; flex-direction: column; }
+.lic-mini .lic-txt b { font-size: 13.5px; }
+.lic-mini .lic-txt span { font-size: 11.5px; color: var(--muted); }
+.lic-mini-box { background: var(--panel-2); border: 1px solid var(--border-soft);
+  border-radius: 12px; padding: 10px 12px; }
+
+/* general polish */
+.card { transition: border-color .15s; }
+.card:hover { border-color: var(--border-soft); }
+.wrap { animation: paneIn .16s ease; }

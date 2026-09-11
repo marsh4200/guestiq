@@ -2,6 +2,7 @@
 let TOKEN = localStorage.getItem('giq_token') || '';
 let ROOMS = [];
 let ME = null;          // signed-in user: role + permissions
+let LICENSE = null;     // /api/license/status result
 
 function can(perm) {
   if (!ME) return false;
@@ -168,7 +169,7 @@ async function showApp() {
     <span class="who-role ${ME.is_admin ? 'admin' : ''}">${ME.is_admin ? 'Admin' : 'Staff'}</span>`;
   document.getElementById('updateBtn').classList.toggle('hidden', !can('updates'));
   renderNav();
-  await loadVersion();
+  await Promise.all([loadVersion(), loadLicense()]);
   switchTab('checkins');
   if (can('updates')) checkUpdatesQuietly();
 }
@@ -277,6 +278,17 @@ async function renderCheckins(quiet) {
       <button class="btn ghost sm" onclick="ackAllAlerts()">Clear all</button>
     </div>` : '';
 
+  /* ---------------- license strip ---------------- */
+  const licInfo = licenseInfo();
+  const licenseHtml = LICENSE ? `
+    <div class="card lic-mini ${licInfo.cls}" style="padding:12px 16px;margin-bottom:16px;cursor:pointer;"
+      onclick="openLicenseModal()" title="View license details">
+      <div class="lic-ico">${licenseGlyph(licInfo.cls)}</div>
+      <div class="lic-txt" style="flex:1;"><b style="color:${licenseColor(licInfo.cls)}">${esc(licInfo.title)}</b>
+        <span>${esc(licInfo.sub || '')}</span></div>
+      <span class="muted" style="font-size:12px;">Details →</span>
+    </div>` : '';
+
   /* ---------------- pending ---------------- */
   const pendingRows = pending.length ? pending.map(s => `
     <tr>
@@ -322,6 +334,7 @@ async function renderCheckins(quiet) {
     </tr>`).join('') : `<tr><td colspan="6" class="empty">No departures yet</td></tr>`;
 
   el.innerHTML = `
+    ${licenseHtml}
     ${alertHtml}
     <div class="stats">
       <div class="stat amber"><div class="num">${pending.length}</div><div class="lbl">Pending arrivals</div></div>
@@ -926,12 +939,55 @@ async function renderQR() {
 }
 
 /* =========================== SETTINGS TAB =========================== */
+const SETTINGS_ICONS = {
+  general: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7"/><path d="M9 22V12h6v10"/><path d="M5 10v10a1 1 0 0 0 1 1h3"/><path d="M19 10v10a1 1 0 0 1-1 1h-3"/></svg>',
+  dining: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2V2"/><path d="M6 11v11"/><path d="M18 2c-1.66 0-3 2.69-3 6s1.34 6 3 6 3-2.69 3-6-1.34-6-3-6z"/><path d="M18 14v9"/></svg>',
+  alerts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  access: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+  security: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  backup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  license: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.5 12.5L20 3"/><path d="M17 6l3 3"/><path d="M14 9l2 2"/></svg>',
+};
+const SETTINGS_TABS = [
+  { id: 'general', label: 'General' },
+  { id: 'dining', label: 'Dining' },
+  { id: 'alerts', label: 'Alerts' },
+  { id: 'access', label: 'Room access' },
+  { id: 'security', label: 'Security', show: () => isAdmin() },
+  { id: 'backup', label: 'Backup', show: () => isAdmin() },
+  { id: 'license', label: 'License' },
+];
+let _settingsTab = 'general';
+function visibleSettingsTabs() { return SETTINGS_TABS.filter(t => !t.show || t.show()); }
+
+function switchSettingsTab(id) {
+  if (!visibleSettingsTabs().some(t => t.id === id)) id = 'general';
+  _settingsTab = id;
+  document.querySelectorAll('.settings-pane').forEach(p =>
+    p.classList.toggle('active', p.id === 'settings-' + id));
+  document.querySelectorAll('.subnav-item[data-stab]').forEach(b =>
+    b.classList.toggle('active', b.dataset.stab === id));
+  if (id === 'license') renderLicensePane();
+}
+
 async function renderSettings() {
   const el = document.getElementById('tab-settings');
-  const s = await api('/api/settings');
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  let s;
+  try { s = await api('/api/settings'); }
+  catch (e) { el.innerHTML = `<div class="card"><p class="muted">${esc(e.message)}</p></div>`; return; }
   const f = (id, v) => `value="${esc(v||'')}"`;
   el.innerHTML = `
-    <div class="grid cols-2">
+    <div class="subnav">
+      ${visibleSettingsTabs().map(t => `
+        <button class="subnav-item" data-stab="${t.id}" onclick="switchSettingsTab('${t.id}')">
+          ${SETTINGS_ICONS[t.id] || ''}<span>${t.label}</span>
+        </button>`).join('')}
+    </div>
+
+    <div class="settings-pane" id="settings-general">
+      <p class="section-lead">The name, contact details and welcome message guests see
+        on the pages they reach by scanning a QR code.</p>
       <div class="card">
         <h2>Hotel details</h2>
         <label>Logo</label>
@@ -958,34 +1014,33 @@ async function renderSettings() {
         <label>Welcome message (shown to guests)</label>
         <textarea id="sWelcome">${esc(s.welcome_message||'')}</textarea>
         <label>Default checkout time</label><input id="sCheckout" ${f('',s.checkout_time)}>
+        <div class="row end" style="margin-top:18px;">
+          <button class="btn" onclick="saveSettings()">Save settings</button>
+        </div>
       </div>
+    </div>
+
+    <div class="settings-pane" id="settings-dining">
+      <p class="section-lead">Shown behind the &ldquo;View Menu&rdquo; button on the room QR page.</p>
       <div class="card">
         <h2>Dining</h2>
         <label>Restaurant name</label><input id="sResName" ${f('',s.restaurant_name)}>
         <label>Restaurant phone</label><input id="sResPhone" ${f('',s.restaurant_phone)}>
         <label>Online menu URL</label><input id="sMenu" placeholder="https://…" ${f('',s.menu_url)}>
         <p class="muted" style="font-size:12px;margin-top:4px;">
-          Opened by the &ldquo;View Menu&rdquo; button on the room QR page.
           <b>https://</b> is added automatically if you leave it off.</p>
         <div class="row end" style="margin-top:18px;">
           <button class="btn" onclick="saveSettings()">Save settings</button>
         </div>
-        ${isAdmin() ? `
-        <hr style="border:none;border-top:1px solid var(--border);margin:22px 0;">
-        <h2>Change my password</h2>
-        <label>New password</label><input id="sNewPw" type="password">
-        <div class="row end" style="margin-top:12px;">
-          <button class="btn ghost" onclick="changePw()">Update password</button>
-        </div>
-        <p class="muted" style="font-size:12px;">Staff passwords are set from the
-          <b>Staff</b> tab. Staff cannot change any password themselves.</p>` : ''}
       </div>
+    </div>
+
+    <div class="settings-pane" id="settings-alerts">
+      <p class="section-lead">Reception is notified when a guest is still in-house past
+        their check-out time. Alerts are also pushed to the automation hub when the
+        Automation tab is connected.</p>
       <div class="card">
         <h2>Overdue checkout alerts</h2>
-        <p class="muted" style="margin-top:0;font-size:13px;">
-          Reception is notified when a guest is still in-house past their
-          check-out time. Alerts are also pushed to the automation hub when
-          the Automation tab is connected.</p>
         <label style="display:flex;align-items:center;gap:8px;">
           <input type="checkbox" id="sOverdueOn" style="width:auto;"
             ${s.overdue_alerts_enabled ? 'checked' : ''}> Notify on overdue check-outs
@@ -1001,10 +1056,16 @@ async function renderSettings() {
         <p class="muted" style="font-size:12px;margin-top:4px;">
           120 = UTC+2 (South Africa). This is what check-in / check-out times are
           stamped and compared in.</p>
-        <div class="row end" style="margin-top:12px;">
+        <div class="row" style="margin-top:12px;justify-content:space-between;">
           <button class="btn ghost" onclick="scanOverdueNow()">Check for overdue now</button>
+          <button class="btn" onclick="saveSettings()">Save settings</button>
         </div>
       </div>
+    </div>
+
+    <div class="settings-pane" id="settings-access">
+      <p class="section-lead">Controls what a guest sees when they scan their room's QR
+        code after checking out.</p>
       <div class="card">
         <h2>Room QR access</h2>
         <label style="display:flex;align-items:center;gap:8px;">
@@ -1023,8 +1084,24 @@ async function renderSettings() {
           <button class="btn" onclick="saveSettings()">Save settings</button>
         </div>
       </div>
-      ${isAdmin() ? `
-      <div class="card" style="grid-column:1/-1;">
+    </div>
+
+    ${isAdmin() ? `
+    <div class="settings-pane" id="settings-security">
+      <p class="section-lead">Your own sign-in password. Staff passwords are set from
+        the Staff tab — staff cannot change any password themselves.</p>
+      <div class="card">
+        <h2>Change my password</h2>
+        <label>New password</label><input id="sNewPw" type="password">
+        <div class="row end" style="margin-top:12px;">
+          <button class="btn ghost" onclick="changePw()">Update password</button>
+        </div>
+      </div>
+    </div>` : '<div class="settings-pane" id="settings-security"></div>'}
+
+    ${isAdmin() ? `
+    <div class="settings-pane" id="settings-backup">
+      <div class="card">
         <h2>Backup & restore</h2>
         <p class="muted" style="margin-top:0;font-size:13px;">
           A backup holds <b>everything</b> — rooms, guests, stays and their
@@ -1055,9 +1132,151 @@ async function renderSettings() {
             style="max-width:280px;padding:7px;font-size:12.5px;" onchange="inspectRestore()">
         </div>
         <div id="backupList" class="muted" style="font-size:13px;margin-top:14px;">Loading saved copies…</div>
-      </div>` : ''}
-    </div>`;
+      </div>
+    </div>` : '<div class="settings-pane" id="settings-backup"></div>'}
+
+    <div class="settings-pane" id="settings-license"></div>`;
+  switchSettingsTab(_settingsTab);
   if (isAdmin()) loadBackups();
+}
+
+/* --------------------------- license (v1.9.0) --------------------------- */
+const LICENSE_REASON_LABEL = {
+  expired: 'License expired',
+  server_mismatch: 'License mismatch',
+  invalid_or_unsigned: 'Invalid license',
+  wrong_product: 'Wrong product license',
+  not_activated: 'Not licensed',
+  db_unavailable: 'Checking…',
+};
+async function loadLicense() {
+  try { LICENSE = await api('/api/license/status'); }
+  catch (e) { LICENSE = null; }
+  renderLicenseChip();
+}
+function licenseInfo() {
+  const l = LICENSE;
+  if (!l) return { cls: 'warn', title: 'Checking…', sub: '' };
+  if (!l.activated) {
+    return {
+      cls: 'bad',
+      title: LICENSE_REASON_LABEL[l.reason] || 'Not licensed',
+      sub: l.reason === 'expired' && l.expires_at ? 'Expired ' + fmtTs(l.expires_at) : '',
+    };
+  }
+  let cls = 'ok', sub = l.expires_at ? 'Expires ' + fmtTs(l.expires_at) : 'Perpetual license';
+  if (l.expires_at) {
+    const days = Math.floor((new Date(l.expires_at) - new Date()) / 86400000);
+    if (days <= 30) {
+      cls = 'warn';
+      sub = days <= 0 ? 'Expires today' : `Expires in ${days} day${days === 1 ? '' : 's'}`;
+    }
+  }
+  return { cls, title: l.client ? 'Licensed to ' + l.client : 'Licensed — active', sub };
+}
+function licenseColor(cls) { return cls === 'ok' ? 'var(--green)' : cls === 'warn' ? 'var(--amber)' : 'var(--red)'; }
+function licenseGlyph(cls) { return cls === 'ok' ? '✓' : cls === 'warn' ? '!' : '⚠'; }
+function renderLicenseChip() {
+  const el = document.getElementById('licenseChip');
+  if (!el) return;
+  const info = licenseInfo();
+  el.className = 'license-chip ' + info.cls;
+  el.innerHTML = `<span class="dot"></span><span class="hide-sm">${esc(info.title)}</span>`;
+  el.title = info.sub ? info.title + ' — ' + info.sub : info.title;
+}
+async function copyText(text) {
+  if (!text) return;
+  try { await navigator.clipboard.writeText(text); toast('Copied'); }
+  catch (e) { toast('Could not copy — select and copy it manually'); }
+}
+function openLicenseModal() {
+  const l = LICENSE || {};
+  const info = licenseInfo();
+  openModal(`
+    <div class="lic-mini lic-mini-box ${info.cls}" style="margin-bottom:4px;">
+      <div class="lic-ico">${licenseGlyph(info.cls)}</div>
+      <div class="lic-txt"><b style="color:${licenseColor(info.cls)}">${esc(info.title)}</b>
+        <span>${esc(info.sub || '')}</span></div>
+    </div>
+    <div class="lic-rows">
+      ${l.license_id ? `<div class="lic-row"><span class="k">License ID</span><span class="v mono">${esc(l.license_id)}</span></div>` : ''}
+      ${l.issued_at ? `<div class="lic-row"><span class="k">Issued</span><span class="v">${esc(fmtTs(l.issued_at))}</span></div>` : ''}
+      <div class="lic-row"><span class="k">Expires</span><span class="v">${l.expires_at ? esc(fmtTs(l.expires_at)) : 'Never (perpetual)'}</span></div>
+      <div class="lic-row"><span class="k">Server ID</span><span class="v mono">${esc(l.server_id || '—')}
+        <button class="btn ghost sm" style="margin-left:8px;" onclick="copyText('${esc(l.server_id || '')}')">Copy</button></span></div>
+    </div>
+    <div class="row end" style="margin-top:16px;">
+      ${isAdmin() ? `<button class="btn ghost" onclick="closeModal();_settingsTab='license';switchTab('settings')">Manage license</button>` : ''}
+      <button class="btn" onclick="closeModal()">Close</button>
+    </div>`, { title: 'License', icon: licenseGlyph(info.cls), iconClass: info.cls === 'ok' ? 'green' : info.cls === 'warn' ? 'amber' : 'red' });
+}
+function renderLicensePane() {
+  const el = document.getElementById('settings-license');
+  if (!el) return;
+  const l = LICENSE || {};
+  const info = licenseInfo();
+  el.innerHTML = `
+    <p class="section-lead">This install's activation. GuestIQ won't run without a
+      valid, currently-issued key for this server.</p>
+    <div class="grid cols-2">
+      <div class="card">
+        <h2>License status</h2>
+        <div class="lic-mini lic-mini-box ${info.cls}" style="margin-bottom:10px;">
+          <div class="lic-ico">${licenseGlyph(info.cls)}</div>
+          <div class="lic-txt"><b style="color:${licenseColor(info.cls)}">${esc(info.title)}</b>
+            <span>${esc(info.sub || '')}</span></div>
+        </div>
+        <div class="lic-rows">
+          ${l.license_id ? `<div class="lic-row"><span class="k">License ID</span><span class="v mono">${esc(l.license_id)}</span></div>` : ''}
+          ${l.issued_at ? `<div class="lic-row"><span class="k">Issued</span><span class="v">${esc(fmtTs(l.issued_at))}</span></div>` : ''}
+          <div class="lic-row"><span class="k">Expires</span><span class="v">${l.expires_at ? esc(fmtTs(l.expires_at)) : 'Never (perpetual)'}</span></div>
+          <div class="lic-row"><span class="k">Server ID</span><span class="v mono">${esc(l.server_id || '—')}
+            <button class="btn ghost sm" style="margin-left:8px;" onclick="copyText('${esc(l.server_id || '')}')">Copy</button></span></div>
+        </div>
+        <button class="btn ghost sm" onclick="loadLicense().then(renderLicensePane)">Refresh status</button>
+      </div>
+      ${isAdmin() ? `
+      <div class="card">
+        <h2>Change license key</h2>
+        <p class="muted" style="margin-top:0;font-size:13px;">
+          Paste a new key issued for the Server ID shown alongside — to renew,
+          upgrade, or move to a different license.</p>
+        <label>License key</label>
+        <textarea id="lkKey" rows="4" placeholder="WIQL1…" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;"></textarea>
+        <p class="muted" id="lkErr" style="color:var(--red);font-size:12.5px;min-height:16px;"></p>
+        <div class="row end">
+          <button class="btn" onclick="submitLicenseKey()">Activate key</button>
+        </div>
+      </div>` : `
+      <div class="card">
+        <h2>Change license key</h2>
+        <p class="muted" style="margin-top:0;font-size:13px;">Only an administrator can
+          change the license key. Ask an admin to send this server's ID (above) to
+          get one issued.</p>
+      </div>`}
+    </div>`;
+}
+async function submitLicenseKey() {
+  const input = document.getElementById('lkKey');
+  const err = document.getElementById('lkErr');
+  const key = (input.value || '').trim();
+  err.textContent = '';
+  if (!key) { err.textContent = 'Enter a license key'; return; }
+  try {
+    const r = await api('/api/license/activate', { method: 'POST', body: JSON.stringify({ license_key: key }) });
+    if (r.activated) {
+      LICENSE = r; renderLicenseChip(); renderLicensePane(); toast('License activated');
+    } else {
+      const map = {
+        expired: 'This key has expired.',
+        server_mismatch: "This key was issued for a different server — check the Server ID.",
+        invalid_or_unsigned: "That key isn't recognised. Check it was copied in full.",
+        wrong_product: 'That key is for a different product.',
+        empty: 'Enter a license key.',
+      };
+      err.textContent = map[r.reason] || 'That key could not be activated.';
+    }
+  } catch (e) { err.textContent = e.message; }
 }
 
 /* ------------------------- backup & restore ------------------------- */

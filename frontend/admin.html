@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GuestIQ · Admin</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=1.8.0">
+  <link rel="stylesheet" href="/static/css/style.css?v=1.9.0">
 </head>
 <body>
   <!-- LOGIN -->
@@ -30,6 +30,9 @@
       <div class="logo-mark">G</div>
       <div class="brand">Guest<span>IQ</span></div>
       <span class="badge-ver" id="verBadge">v—</span>
+      <button class="license-chip" id="licenseChip" onclick="openLicenseModal()" title="License status">
+        <span class="dot"></span><span class="hide-sm">Checking…</span>
+      </button>
       <div class="spacer"></div>
       <span class="who" id="whoBadge"></span>
       <button class="btn ghost sm topbar-update" id="updateBtn" onclick="switchTab('updates')"></button>
@@ -57,6 +60,6 @@
   <div id="updateOverlayRoot"></div>
   <div id="toastRoot"></div>
 
-  <script src="/static/js/admin.js?v=1.8.0"></script>
+  <script src="/static/js/admin.js?v=1.9.0"></script>
 </body>
 </html>
