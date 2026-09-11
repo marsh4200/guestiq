@@ -1,0 +1,15 @@
+services:
+  guestiq:
+    build: .
+    container_name: guestiq
+    restart: unless-stopped
+    ports:
+      - "9921:9921"
+    volumes:
+      # data (SQLite DB) is bind-mounted so it survives rebuilds/updates
+      - ./data:/app/data
+    environment:
+      # change on first run or via Settings -> Change admin password
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GUESTIQ_REPO=${GUESTIQ_REPO:-marsh4200/guestiq}
+      - GUESTIQ_BRANCH=${GUESTIQ_BRANCH:-main}
