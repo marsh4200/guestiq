@@ -133,6 +133,22 @@ const ICONS = {
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   updates: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
 };
+
+/* ---- modal / action glyphs (line icons, replacing emoji) ---- */
+const MICON = {
+  ban: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="5.5" y1="5.5" x2="18.5" y2="18.5"/></svg>',
+  bed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8V6a2 2 0 0 1 2-2h3"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
+  logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>',
+  userPlus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/></svg>',
+  user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2 11.4 11.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+};
 const NAV = [
   { id: 'checkins', label: 'Check-ins' },
   { id: 'rooms', label: 'Rooms', show: () => can('rooms') || can('rooms_delete') },
@@ -410,7 +426,7 @@ function noRoomsModal() {
       <button class="btn ghost" onclick="closeModal()">Close</button>
       <button class="btn" onclick="closeModal();switchTab('rooms')">${total ? 'Manage rooms' : 'Add a room'}</button>
     </div>`, { title: total ? 'No rooms available' : 'No rooms set up',
-               icon: '⛔', iconClass: 'red' });
+               icon: MICON.ban, iconClass: 'red' });
 }
 
 async function openAssign(stayId) {
@@ -427,7 +443,7 @@ async function openAssign(stayId) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn green" onclick="submitAssign(${stayId})">Check in guest</button>
-    </div>`, { title: 'Assign room', icon: '🛏', iconClass: 'green' });
+    </div>`, { title: 'Assign room', icon: MICON.bed, iconClass: 'green' });
 }
 async function submitAssign(stayId) {
   const room_id = parseInt(document.getElementById('asRoom').value, 10);
@@ -471,7 +487,7 @@ async function openManualStay() {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn green" onclick="submitManualStay()">Check in</button>
-    </div>`, { title: 'Manual check-in', icon: '✍️', iconClass: 'blue' });
+    </div>`, { title: 'Manual check-in', icon: MICON.edit, iconClass: 'blue' });
   searchContacts('');   // preload the most recent contacts
 }
 
@@ -516,7 +532,7 @@ function pickContact(id) {
   hideContacts();
   document.getElementById('mPicked').innerHTML = `
     <div class="picked-chip">
-      <div class="pc-ico">👤</div>
+      <div class="pc-ico">${MICON.user}</div>
       <div style="flex:1;min-width:0;">
         <div class="pi-name">${esc(g.full_name)}</div>
         <div class="pi-sub">${g.visits ? esc(g.visits + (g.visits > 1 ? ' previous stays' : ' previous stay')) : 'First stay'}
@@ -569,7 +585,7 @@ function openCheckout(id) {
   const over = s.overdue && s.minutes_over;
   confirmModal({
     title: 'Check out guest',
-    icon: over ? '⏰' : '👋', iconClass: over ? 'red' : 'amber',
+    icon: over ? MICON.alert : MICON.logout, iconClass: over ? 'red' : 'amber',
     message: '',
     detailHtml: `
       <div class="sumbox">
@@ -630,7 +646,7 @@ function showCheckoutSummary(s, r) {
       Room QR access revoked · room marked available.</p>
     <div class="row end" style="margin-top:16px;">
       <button class="btn" onclick="closeModal()">Done</button>
-    </div>`, { title: 'Checked out', icon: '✓', iconClass: 'green' });
+    </div>`, { title: 'Checked out', icon: MICON.check, iconClass: 'green' });
 }
 
 /* extend a stay straight from the overdue row */
@@ -653,7 +669,7 @@ function openExtend(id) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn green" onclick="submitExtend(${id})">Extend stay</button>
-    </div>`, { title: 'Extend stay', icon: '⏱', iconClass: 'blue' });
+    </div>`, { title: 'Extend stay', icon: MICON.clock, iconClass: 'blue' });
 }
 async function submitExtend(id) {
   const out = document.getElementById('exOut').value;
@@ -725,7 +741,7 @@ function editRoom(id) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn" onclick="saveRoom(${id||'null'})">Save</button>
-    </div>`, { title: (id ? 'Edit' : 'Add') + ' room', icon: '🛏', iconClass: 'blue' });
+    </div>`, { title: (id ? 'Edit' : 'Add') + ' room', icon: MICON.bed, iconClass: 'blue' });
 }
 async function saveRoom(id) {
   const body = {
@@ -747,7 +763,7 @@ function delRoom(id) {
   const r = ROOMS.find(x => x.id === id) || {};
   confirmModal({
     title: 'Delete room',
-    icon: '🗑', iconClass: 'red',
+    icon: MICON.trash, iconClass: 'red',
     message: `Delete room <b>${esc(r.room_number || '')}</b>${r.room_name ? ' · ' + esc(r.room_name) : ''}?
       This can't be undone.`,
     okText: 'Delete', okClass: 'red',
@@ -773,7 +789,7 @@ function showRoomQR(code, num) {
       <a class="btn ghost" href="/api/qr/room/${encodeURIComponent(code)}.png" download="room-${esc(num)}-qr.png">PNG</a>
       <button class="btn" onclick="openPrint('/print/room/${encodeURIComponent(code)}')">Print sheet</button>
       <button class="btn ghost" onclick="closeModal()">Close</button>
-    </div>`, { title: `Room ${esc(num)} — guest QR`, icon: '▦', iconClass: 'blue' });
+    </div>`, { title: `Room ${esc(num)} — guest QR`, icon: ICONS.qr, iconClass: 'blue' });
 }
 
 /* ============================ GUESTS TAB ============================ */
@@ -819,7 +835,7 @@ function addGuest() {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn green" onclick="submitAddGuest()">Save customer</button>
-    </div>`, { title: 'Add customer', icon: '👤', iconClass: 'green' });
+    </div>`, { title: 'Add customer', icon: MICON.userPlus, iconClass: 'green' });
 }
 async function submitAddGuest() {
   const body = {
@@ -855,7 +871,7 @@ function editGuest(id) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn" onclick="saveGuest(${id})">Save</button>
-    </div>`, { title: 'Edit guest', icon: '👤', iconClass: 'blue' });
+    </div>`, { title: 'Edit guest', icon: MICON.user, iconClass: 'blue' });
 }
 async function saveGuest(id) {
   const body = {
@@ -875,7 +891,7 @@ function delGuest(id) {
   const g = (window._guests || []).find(x => x.id === id) || {};
   confirmModal({
     title: 'Delete guest record',
-    icon: '🗑', iconClass: 'red',
+    icon: MICON.trash, iconClass: 'red',
     message: `Delete the record for <b>${esc(g.full_name || 'this guest')}</b>? This can't be undone.`,
     okText: 'Delete', okClass: 'red',
     onOk: async () => {
@@ -1175,7 +1191,7 @@ function licenseInfo() {
   return { cls, title: l.client ? 'Licensed to ' + l.client : 'Licensed — active', sub };
 }
 function licenseColor(cls) { return cls === 'ok' ? 'var(--green)' : cls === 'warn' ? 'var(--amber)' : 'var(--red)'; }
-function licenseGlyph(cls) { return cls === 'ok' ? '✓' : cls === 'warn' ? '!' : '⚠'; }
+function licenseGlyph(cls) { return cls === 'ok' ? MICON.check : MICON.alert; }
 function renderLicenseChip() {
   const el = document.getElementById('licenseChip');
   if (!el) return;
@@ -1319,7 +1335,7 @@ async function backupNow() {
 
 function deleteBackup(name) {
   confirmModal({
-    title: 'Delete backup', icon: '🗑', iconClass: 'red',
+    title: 'Delete backup', icon: MICON.trash, iconClass: 'red',
     message: `Delete <b>${esc(name)}</b> from the server? Any copy you already
       downloaded is unaffected.`,
     okText: 'Delete', okClass: 'red',
@@ -1335,7 +1351,7 @@ function deleteBackup(name) {
 function restoreWarning(counts, source, onOk) {
   const c = counts || {};
   confirmModal({
-    title: 'Restore from backup', icon: '⚠', iconClass: 'red',
+    title: 'Restore from backup', icon: MICON.alert, iconClass: 'red',
     message: `This replaces <b>everything</b> currently in GuestIQ with the
       contents of ${esc(source)}.`,
     detailHtml: `
@@ -1414,7 +1430,7 @@ function restoreDone(r, withUsers) {
                   : 'Staff accounts were left as they were — sign in again to continue.'}</p>
     <div class="row end" style="margin-top:16px;">
       <button class="btn green" onclick="location.reload()">Sign in again</button>
-    </div>`, { title: 'Restore complete', icon: '✓', iconClass: 'green' });
+    </div>`, { title: 'Restore complete', icon: MICON.check, iconClass: 'green' });
 }
 
 async function scanOverdueNow() {
@@ -1448,7 +1464,7 @@ async function uploadLogo() {
 function removeLogo() {
   confirmModal({
     title: 'Remove logo',
-    icon: '🗑', iconClass: 'red',
+    icon: MICON.trash, iconClass: 'red',
     message: 'Guest pages will fall back to showing the initials of the property name.',
     okText: 'Remove', okClass: 'red',
     onOk: async () => {
@@ -1589,7 +1605,7 @@ function addStaff() {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn green" onclick="submitStaff()">Create account</button>
-    </div>`, { title: 'Add staff member', icon: '👥', iconClass: 'green' });
+    </div>`, { title: 'Add staff member', icon: ICONS.guests, iconClass: 'green' });
 }
 function toggleRoleBoxes() {
   const admin = document.getElementById('suRole').value === 'admin';
@@ -1635,7 +1651,7 @@ function editStaff(id) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn" onclick="submitEditStaff(${id})">Save</button>
-    </div>`, { title: esc(u.display_name || u.username), icon: '🔑', iconClass: 'blue' });
+    </div>`, { title: esc(u.display_name || u.username), icon: MICON.key, iconClass: 'blue' });
 }
 async function submitEditStaff(id) {
   const body = {
@@ -1661,7 +1677,7 @@ function staffPassword(id) {
     <div class="row end" style="margin-top:16px;">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn" onclick="submitStaffPassword(${id})">Set password</button>
-    </div>`, { title: 'Set password', icon: '🔒', iconClass: 'amber' });
+    </div>`, { title: 'Set password', icon: MICON.lock, iconClass: 'amber' });
 }
 async function submitStaffPassword(id) {
   const pw = document.getElementById('spPw').value;
@@ -1677,7 +1693,7 @@ function delStaff(id) {
   const u = _staffData.users.find(x => x.id === id) || {};
   confirmModal({
     title: 'Delete account',
-    icon: '🗑', iconClass: 'red',
+    icon: MICON.trash, iconClass: 'red',
     message: `Delete the account for <b>${esc(u.display_name || u.username)}</b>?
       Guest records they created are not affected.`,
     okText: 'Delete', okClass: 'red',
